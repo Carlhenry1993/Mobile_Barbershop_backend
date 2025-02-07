@@ -28,6 +28,11 @@ app.use(
 );
 app.use(express.json());
 
+// Root route to check if backend is running
+app.get("/", (req, res) => {
+  res.send("Backend is running!");
+});
+
 // Routes
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
