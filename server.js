@@ -21,7 +21,11 @@ const app = express();
 // Middleware
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:3001", "https://mobile-barbershop-frontend.vercel.app"],
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://mobile-barbershop-frontend.vercel.app"
+    ],
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -54,7 +58,11 @@ app.use((err, req, res, next) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["http://localhost:3000", "http://localhost:3001", "https://mobile-barbershop-frontend.vercel.app"],
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      "https://mobile-barbershop-frontend.vercel.app"
+    ],
     methods: ["GET", "POST"],
   },
 });
@@ -144,13 +152,17 @@ io.on("connection", (socket) => {
 
   // Admin sends a message to a client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
+    // Only allow admin to send messages to a client
+    if (user.role !== "admin") {
+      return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
+    }
     if (!clientId || !message) {
       return socket.emit("error", { message: "ID client ou message manquant." });
     }
     const clientSocketId = clientsMap[clientId]?.socketId;
     if (clientSocketId) {
       try {
-        // Save the message to the database
+        // Save the message to the database (with sender explicitly set as 'admin')
         const savedMessage = await saveMessage("admin", clientId, message);
         // Notify the client
         io.to(clientSocketId).emit("new_message", {
