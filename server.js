@@ -18,7 +18,7 @@ const app = express();
 // const helmet = require("helmet");
 // app.use(helmet());
 
-// Middleware
+// Middleware: Enable CORS for specified origins and include OPTIONS in allowed methods
 app.use(
   cors({
     origin: [
@@ -26,11 +26,16 @@ app.use(
       "http://localhost:3001",
       "https://mobile-barbershop-frontend.vercel.app"
     ],
-    methods: ["GET", "POST", "PUT", "DELETE"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// Parse JSON request bodies
 app.use(express.json());
+
+// Global OPTIONS handler for preflight requests
+app.options("*", cors());
 
 // Root route to check if backend is running
 app.get("/", (req, res) => {
@@ -43,7 +48,7 @@ app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// 404 Handler
+// 404 Handler: For any unmatched route
 app.use((req, res) => {
   res.status(404).json({ error: "Route non trouvée" });
 });
@@ -133,9 +138,7 @@ io.on("connection", (socket) => {
       }
       if (adminSocket) {
         try {
-          // Save the message to the database
           const savedMessage = await saveMessage(user.id, "admin", message);
-          // Notify the admin
           adminSocket.emit("new_message", {
             sender: user.username || `Client ${user.id}`,
             message: savedMessage.message,
@@ -152,7 +155,6 @@ io.on("connection", (socket) => {
 
   // Admin sends a message to a client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
-    // Only allow admin to send messages to a client
     if (user.role !== "admin") {
       return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
     }
@@ -162,9 +164,7 @@ io.on("connection", (socket) => {
     const clientSocketId = clientsMap[clientId]?.socketId;
     if (clientSocketId) {
       try {
-        // Save the message to the database (with sender explicitly set as 'admin')
         const savedMessage = await saveMessage("admin", clientId, message);
-        // Notify the client
         io.to(clientSocketId).emit("new_message", {
           sender: "admin",
           message: savedMessage.message,
