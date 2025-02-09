@@ -36,7 +36,9 @@ app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount routes
+// Mount routes – note that the authentication routes are mounted under /api/auth.
+// Verify that your production database is properly migrated so that users created locally
+// are available in production (or create new test users).
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
@@ -138,9 +140,7 @@ io.on("connection", (socket) => {
           });
         } catch (err) {
           console.error("Erreur lors de l'enregistrement du message :", err.message);
-          socket.emit("error", {
-            message: "Erreur lors de l'enregistrement du message.",
-          });
+          socket.emit("error", { message: "Erreur lors de l'enregistrement du message." });
         }
       } else {
         socket.emit("error", { message: "Aucun administrateur connecté." });
@@ -151,9 +151,7 @@ io.on("connection", (socket) => {
   // Admin sends a message to a client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
-      return socket.emit("error", {
-        message: "Seul l'administrateur peut envoyer des messages aux clients.",
-      });
+      return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
     }
     if (!clientId || !message) {
       return socket.emit("error", { message: "ID client ou message manquant." });
@@ -168,9 +166,7 @@ io.on("connection", (socket) => {
         });
       } catch (err) {
         console.error("Erreur lors de l'envoi du message à un client :", err.message);
-        socket.emit("error", {
-          message: "Erreur lors de l'envoi du message.",
-        });
+        socket.emit("error", { message: "Erreur lors de l'envoi du message." });
       }
     } else {
       console.error(`Client non trouvé ou déconnecté : ${clientId}`);
