@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const announcementController = require("../controllers/announcementController");
-const isAdmin = require("../middlewares/authMiddleware"); // Importer le middleware isAdmin
+const isAdmin = require("../middlewares/isAdmin"); // Importer le middleware isAdmin
 
 // Route pour obtenir toutes les annonces
 router.get("/", announcementController.getAllAnnouncements);
