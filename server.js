@@ -15,11 +15,7 @@ const contactRoutes = require("./routes/contactRoutes");
 
 const app = express();
 
-// Optionally include security middleware (e.g., helmet)
-// const helmet = require("helmet");
-// app.use(helmet());
-
-// Middleware: Enable CORS for specified origins and include OPTIONS in allowed methods
+// Enable CORS for specified origins and allowed methods/headers
 app.use(
   cors({
     origin: [
@@ -32,18 +28,15 @@ app.use(
   })
 );
 
-// Parse JSON request bodies
 app.use(express.json());
-
-// Global OPTIONS handler for preflight requests
 app.options("*", cors());
 
-// Root route
+// Root route for health-check
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Routes
+// Mount routes
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
@@ -60,7 +53,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Une erreur interne est survenue." });
 });
 
-// Socket.IO Setup
+// Create HTTP server and set up Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -73,7 +66,7 @@ const io = new Server(server, {
   },
 });
 
-// In-memory storage for connected clients and admin socket
+// In-memory storage for connected clients and admin socket (Socket.IO implementation)
 const clientsMap = {};
 let adminSocket = null;
 

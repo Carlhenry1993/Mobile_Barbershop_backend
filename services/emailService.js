@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 require('dotenv').config();
 
+// Create a transporter using Gmail's service
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -9,12 +10,12 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-// Email pour notifier le coiffeur
+// Email for notifying the barber about a new reservation
 exports.notifyBarber = async (data) => {
   const mailOptions = {
-    from: process.env.EMAIL_USER, // Adresse email du service
-    to: process.env.BARBER_EMAIL, // Adresse email du coiffeur
-    replyTo: data.email, // L'adresse email du client pour répondre directement
+    from: process.env.EMAIL_USER, // Service email address
+    to: process.env.BARBER_EMAIL,   // Barber's email address
+    replyTo: data.email,            // Client's email for direct replies
     subject: 'Nouvelle réservation à vérifier',
     text: `
       Une nouvelle réservation a été effectuée :
@@ -42,7 +43,7 @@ exports.notifyBarber = async (data) => {
   }
 };
 
-// Email pour confirmer au client
+// Email for confirming the reservation to the client
 exports.confirmToClient = async (data) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -78,12 +79,12 @@ exports.confirmToClient = async (data) => {
   }
 };
 
-// Email pour formulaire de contact
+// Email for handling messages sent via the contact form
 exports.sendContactEmail = async (data) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,
-    to: process.env.BARBER_EMAIL, // Adresse email du coiffeur pour recevoir le message
-    replyTo: data.email, // Adresse email du client pour répondre directement
+    to: process.env.BARBER_EMAIL, // Barber's email to receive the contact message
+    replyTo: data.email,          // Client's email for direct replies
     subject: 'Nouveau message du formulaire de contact',
     text: `
       Nouveau message reçu depuis le formulaire de contact :
@@ -104,7 +105,7 @@ exports.sendContactEmail = async (data) => {
   }
 };
 
-// Email de confirmation de réservation reçue pour le coiffeur
+// Email to confirm that the reservation has been received (for the barber)
 exports.confirmBarberReceipt = async (data) => {
   const mailOptions = {
     from: process.env.EMAIL_USER,

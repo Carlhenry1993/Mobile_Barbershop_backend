@@ -1,3 +1,4 @@
+// controllers/bookingController.js
 const { notifyBarber, confirmToClient } = require('../services/emailService');
 
 exports.createReservation = async (req, res) => {
