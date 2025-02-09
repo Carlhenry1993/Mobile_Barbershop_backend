@@ -1,3 +1,4 @@
+// server.js
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -24,7 +25,7 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:3001",
-      "https://mobile-barbershop-frontend.vercel.app"
+      "https://mobile-barbershop-frontend.vercel.app",
     ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -37,7 +38,7 @@ app.use(express.json());
 // Global OPTIONS handler for preflight requests
 app.options("*", cors());
 
-// Root route to check if backend is running
+// Root route
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
@@ -48,7 +49,7 @@ app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// 404 Handler: For any unmatched route
+// 404 Handler for unmatched routes
 app.use((req, res) => {
   res.status(404).json({ error: "Route non trouvée" });
 });
@@ -66,7 +67,7 @@ const io = new Server(server, {
     origin: [
       "http://localhost:3000",
       "http://localhost:3001",
-      "https://mobile-barbershop-frontend.vercel.app"
+      "https://mobile-barbershop-frontend.vercel.app",
     ],
     methods: ["GET", "POST"],
   },
@@ -105,7 +106,6 @@ io.on("connection", (socket) => {
       return socket.disconnect();
     }
     adminSocket = socket;
-    // Inform admin of currently connected clients
     socket.emit("update_client_list", Object.values(clientsMap));
 
     // Admin sends an announcement
@@ -125,7 +125,7 @@ io.on("connection", (socket) => {
       }
     });
   } else if (user.role === "client") {
-    // Register client in the clientsMap
+    // Register client in clientsMap
     clientsMap[user.id] = { id: user.id, name: user.username, socketId: socket.id };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
@@ -145,7 +145,9 @@ io.on("connection", (socket) => {
           });
         } catch (err) {
           console.error("Erreur lors de l'enregistrement du message :", err.message);
-          socket.emit("error", { message: "Erreur lors de l'enregistrement du message." });
+          socket.emit("error", {
+            message: "Erreur lors de l'enregistrement du message.",
+          });
         }
       } else {
         socket.emit("error", { message: "Aucun administrateur connecté." });
@@ -156,7 +158,9 @@ io.on("connection", (socket) => {
   // Admin sends a message to a client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
-      return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
+      return socket.emit("error", {
+        message: "Seul l'administrateur peut envoyer des messages aux clients.",
+      });
     }
     if (!clientId || !message) {
       return socket.emit("error", { message: "ID client ou message manquant." });
@@ -171,7 +175,9 @@ io.on("connection", (socket) => {
         });
       } catch (err) {
         console.error("Erreur lors de l'envoi du message à un client :", err.message);
-        socket.emit("error", { message: "Erreur lors de l'envoi du message." });
+        socket.emit("error", {
+          message: "Erreur lors de l'envoi du message.",
+        });
       }
     } else {
       console.error(`Client non trouvé ou déconnecté : ${clientId}`);
