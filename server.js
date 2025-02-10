@@ -36,9 +36,7 @@ app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount routes – note that the authentication routes are mounted under /api/auth.
-// Verify that your production database is properly migrated so that users created locally
-// are available in production (or create new test users).
+// Mount routes
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
@@ -68,7 +66,7 @@ const io = new Server(server, {
   },
 });
 
-// In-memory storage for connected clients and admin socket (Socket.IO implementation)
+// In-memory storage for connected clients and admin socket
 const clientsMap = {};
 let adminSocket = null;
 
@@ -174,15 +172,70 @@ io.on("connection", (socket) => {
     }
   });
 
-  // WebRTC Signaling events for real-time communication
-  socket.on("offer", (data) => {
-    socket.to(data.target).emit("offer", data);
+  // --- WebRTC Call Signaling Events for Voice/Video Calls ---
+
+  // Helper: Retrieve the target socket ID using data.to
+  const getTargetSocketId = (target) => {
+    if (target === "admin") {
+      return adminSocket ? adminSocket.id : null;
+    } else {
+      return clientsMap[target] ? clientsMap[target].socketId : null;
+    }
+  };
+
+  socket.on("call_offer", (data) => {
+    const targetSocketId = getTargetSocketId(data.to);
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("call_offer", {
+        from: user.id,
+        callType: data.callType,
+        offer: data.offer,
+      });
+    } else {
+      socket.emit("error", { message: "Destinataire de l'appel non disponible." });
+    }
   });
-  socket.on("answer", (data) => {
-    socket.to(data.target).emit("answer", data);
+
+  socket.on("call_answer", (data) => {
+    const targetSocketId = getTargetSocketId(data.to);
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("call_answer", {
+        from: user.id,
+        answer: data.answer,
+      });
+    } else {
+      socket.emit("error", { message: "Destinataire de l'appel non disponible." });
+    }
   });
-  socket.on("candidate", (data) => {
-    socket.to(data.target).emit("candidate", data);
+
+  socket.on("call_candidate", (data) => {
+    const targetSocketId = getTargetSocketId(data.to);
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("call_candidate", {
+        from: user.id,
+        candidate: data.candidate,
+      });
+    } else {
+      socket.emit("error", { message: "Destinataire de l'appel non disponible." });
+    }
+  });
+
+  socket.on("call_reject", (data) => {
+    const targetSocketId = getTargetSocketId(data.to);
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("call_reject", { from: user.id });
+    } else {
+      socket.emit("error", { message: "Destinataire de l'appel non disponible." });
+    }
+  });
+
+  socket.on("call_end", (data) => {
+    const targetSocketId = getTargetSocketId(data.to);
+    if (targetSocketId) {
+      socket.to(targetSocketId).emit("call_end", { from: user.id });
+    } else {
+      socket.emit("error", { message: "Destinataire de l'appel non disponible." });
+    }
   });
 
   // Handle disconnection: update clientsMap and notify admin if needed
