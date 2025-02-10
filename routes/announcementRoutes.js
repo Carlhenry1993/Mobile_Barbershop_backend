@@ -2,7 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const announcementController = require("../controllers/announcementController");
-const isAdmin = require("../middleware/isAdmin");
+const isAdmin = require("../middlewares/isAdmin");
 
 // Route pour récupérer toutes les annonces (accessible à tous)
 router.get("/", announcementController.getAllAnnouncements);
