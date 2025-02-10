@@ -11,15 +11,14 @@ const sendMessage = async (data) => {
   }
 };
 
-// Fonction pour configurer les écouteurs de chat avec Socket.IO
+// Optionnel : Fonction pour configurer les écouteurs de chat via Socket.IO (si utilisé séparément)
 const setupChatListeners = (io) => {
-  const clientsMap = {}; // Map pour suivre les clients connectés
-  let adminSocket = null; // Référence au socket de l'administrateur
+  const clientsMap = {};
+  let adminSocket = null;
 
   io.on("connection", (socket) => {
     console.log("Nouvelle connexion WebSocket : ", socket.id);
 
-    // Identification de l'utilisateur connecté
     socket.on("identify", (user) => {
       if (user.role === "admin") {
         adminSocket = socket;
@@ -30,7 +29,6 @@ const setupChatListeners = (io) => {
       }
     });
 
-    // Lorsqu'un client envoie un message à l'administrateur
     socket.on("messageToAdmin", async (data) => {
       try {
         const savedMessage = await sendMessage({
@@ -39,7 +37,6 @@ const setupChatListeners = (io) => {
           message: data.message,
           is_read: false,
         });
-
         if (adminSocket) {
           adminSocket.emit("newMessageForAdmin", {
             message: savedMessage.message,
@@ -53,7 +50,6 @@ const setupChatListeners = (io) => {
       }
     });
 
-    // Lorsqu'un administrateur envoie un message à un client
     socket.on("messageToClient", async (data) => {
       try {
         const savedMessage = await sendMessage({
@@ -62,7 +58,6 @@ const setupChatListeners = (io) => {
           message: data.message,
           is_read: false,
         });
-
         const clientSocketId = clientsMap[data.clientId];
         if (clientSocketId) {
           io.to(clientSocketId).emit("newMessageForClient", {
@@ -77,7 +72,6 @@ const setupChatListeners = (io) => {
       }
     });
 
-    // Gestion de la déconnexion
     socket.on("disconnect", () => {
       console.log(`Socket déconnecté : ${socket.id}`);
       if (socket === adminSocket) {

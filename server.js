@@ -6,7 +6,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const pool = require("./db/pool");
 
-// Importation des routes
+// Import des routes
 const announcementRoutes = require("./routes/announcementRoutes");
 const authRoutes = require("./routes/authRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
@@ -14,7 +14,7 @@ const contactRoutes = require("./routes/contactRoutes");
 
 const app = express();
 
-// Configuration de CORS pour les origines autorisées
+// Configuration CORS
 app.use(
   cors({
     origin: [
@@ -26,11 +26,10 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
 app.use(express.json());
 app.options("*", cors());
 
-// Route racine pour le health-check
+// Route de base pour le health-check
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
@@ -41,7 +40,7 @@ app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// Gestion 404
+// Gestion des routes non trouvées
 app.use((req, res) => {
   res.status(404).json({ error: "Route non trouvée" });
 });
@@ -69,7 +68,7 @@ const io = new Server(server, {
 const clientsMap = {};
 let adminSocket = null;
 
-// Middleware d'authentification Socket.IO
+// Middleware d'authentification pour Socket.IO
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Authentification manquante"));
@@ -109,7 +108,7 @@ io.on("connection", (socket) => {
     adminSocket = socket;
     socket.emit("update_client_list", Object.values(clientsMap));
 
-    // L'administrateur envoie une annonce
+    // L'administrateur peut envoyer une annonce
     socket.on("send_announcement", async ({ title, content }) => {
       if (!title || !content) {
         return socket.emit("error", { message: "Titre ou contenu manquant." });
@@ -154,7 +153,7 @@ io.on("connection", (socket) => {
     });
   }
 
-  // L'administrateur envoie un message à un client
+  // L'administrateur peut envoyer un message à un client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
       return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
@@ -181,11 +180,10 @@ io.on("connection", (socket) => {
   });
 
   // --- Événements de signalisation WebRTC pour les appels vocaux/vidéo ---
-
   socket.on("call_offer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
+    console.log(`Appel OFFER de ${user.id} vers ${data.to} (socket cible: ${targetSocketId})`);
     if (targetSocketId) {
-      // Utilisation de io.to() pour émettre vers le socket ciblé
       io.to(targetSocketId).emit("call_offer", {
         from: user.id,
         callType: data.callType,
@@ -198,6 +196,7 @@ io.on("connection", (socket) => {
 
   socket.on("call_answer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
+    console.log(`Appel ANSWER de ${user.id} vers ${data.to} (socket cible: ${targetSocketId})`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_answer", {
         from: user.id,
@@ -238,7 +237,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Déconnexion : mise à jour de clientsMap et notification à l'administrateur
+  // Déconnexion : mise à jour des sockets enregistrés
   socket.on("disconnect", () => {
     console.log(`${user.role} déconnecté : ${user.username || user.id}`);
     if (user.role === "client") {
