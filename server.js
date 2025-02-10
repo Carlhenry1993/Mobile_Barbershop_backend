@@ -1,4 +1,3 @@
-// server.js
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
@@ -7,7 +6,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const pool = require("./db/pool");
 
-// Import routes
+// Importation des routes
 const announcementRoutes = require("./routes/announcementRoutes");
 const authRoutes = require("./routes/authRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
@@ -15,7 +14,7 @@ const contactRoutes = require("./routes/contactRoutes");
 
 const app = express();
 
-// Enable CORS for specified origins and allowed methods/headers
+// Configuration de CORS pour les origines autorisées
 app.use(
   cors({
     origin: [
@@ -31,29 +30,29 @@ app.use(
 app.use(express.json());
 app.options("*", cors());
 
-// Root route for health-check
+// Route racine pour le health-check
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount routes
+// Montage des routes
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// 404 Handler for unmatched routes
+// Gestion 404
 app.use((req, res) => {
   res.status(404).json({ error: "Route non trouvée" });
 });
 
-// Global Error Handler
+// Gestion globale des erreurs
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: "Une erreur interne est survenue." });
 });
 
-// Create HTTP server and set up Socket.IO
+// Création du serveur HTTP et configuration de Socket.IO
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -66,11 +65,11 @@ const io = new Server(server, {
   },
 });
 
-// In-memory storage for connected clients and admin socket
+// Stockage en mémoire des clients connectés et du socket admin
 const clientsMap = {};
 let adminSocket = null;
 
-// Socket.IO Authentication Middleware
+// Middleware d'authentification Socket.IO
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Authentification manquante"));
@@ -88,7 +87,16 @@ io.use((socket, next) => {
   }
 });
 
-// Socket.IO Connection Handler
+// Fonction d'obtention du socket cible selon l'ID ou "admin"
+const getTargetSocketId = (target) => {
+  if (target === "admin") {
+    return adminSocket ? adminSocket.id : null;
+  } else {
+    return clientsMap[target] ? clientsMap[target].socketId : null;
+  }
+};
+
+// Gestion de la connexion Socket.IO
 io.on("connection", (socket) => {
   const user = socket.user;
   console.log(`${user.role} connecté : ${user.username || user.id}`);
@@ -101,7 +109,7 @@ io.on("connection", (socket) => {
     adminSocket = socket;
     socket.emit("update_client_list", Object.values(clientsMap));
 
-    // Admin sends an announcement
+    // L'administrateur envoie une annonce
     socket.on("send_announcement", async ({ title, content }) => {
       if (!title || !content) {
         return socket.emit("error", { message: "Titre ou contenu manquant." });
@@ -118,13 +126,13 @@ io.on("connection", (socket) => {
       }
     });
   } else if (user.role === "client") {
-    // Register client in clientsMap
+    // Enregistrement du client dans clientsMap
     clientsMap[user.id] = { id: user.id, name: user.username, socketId: socket.id };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
 
-    // Client sends a message to the admin
+    // Le client envoie un message à l'administrateur
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) {
         return socket.emit("error", { message: "Le message est vide." });
@@ -146,7 +154,7 @@ io.on("connection", (socket) => {
     });
   }
 
-  // Admin sends a message to a client
+  // L'administrateur envoie un message à un client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
       return socket.emit("error", { message: "Seul l'administrateur peut envoyer des messages aux clients." });
@@ -172,21 +180,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- WebRTC Call Signaling Events for Voice/Video Calls ---
-
-  // Helper: Retrieve the target socket ID using data.to
-  const getTargetSocketId = (target) => {
-    if (target === "admin") {
-      return adminSocket ? adminSocket.id : null;
-    } else {
-      return clientsMap[target] ? clientsMap[target].socketId : null;
-    }
-  };
+  // --- Événements de signalisation WebRTC pour les appels vocaux/vidéo ---
 
   socket.on("call_offer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
-      socket.to(targetSocketId).emit("call_offer", {
+      // Utilisation de io.to() pour émettre vers le socket ciblé
+      io.to(targetSocketId).emit("call_offer", {
         from: user.id,
         callType: data.callType,
         offer: data.offer,
@@ -199,7 +199,7 @@ io.on("connection", (socket) => {
   socket.on("call_answer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
-      socket.to(targetSocketId).emit("call_answer", {
+      io.to(targetSocketId).emit("call_answer", {
         from: user.id,
         answer: data.answer,
       });
@@ -211,7 +211,7 @@ io.on("connection", (socket) => {
   socket.on("call_candidate", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
-      socket.to(targetSocketId).emit("call_candidate", {
+      io.to(targetSocketId).emit("call_candidate", {
         from: user.id,
         candidate: data.candidate,
       });
@@ -223,7 +223,7 @@ io.on("connection", (socket) => {
   socket.on("call_reject", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
-      socket.to(targetSocketId).emit("call_reject", { from: user.id });
+      io.to(targetSocketId).emit("call_reject", { from: user.id });
     } else {
       socket.emit("error", { message: "Destinataire de l'appel non disponible." });
     }
@@ -232,13 +232,13 @@ io.on("connection", (socket) => {
   socket.on("call_end", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
-      socket.to(targetSocketId).emit("call_end", { from: user.id });
+      io.to(targetSocketId).emit("call_end", { from: user.id });
     } else {
       socket.emit("error", { message: "Destinataire de l'appel non disponible." });
     }
   });
 
-  // Handle disconnection: update clientsMap and notify admin if needed
+  // Déconnexion : mise à jour de clientsMap et notification à l'administrateur
   socket.on("disconnect", () => {
     console.log(`${user.role} déconnecté : ${user.username || user.id}`);
     if (user.role === "client") {
@@ -253,7 +253,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Helper: Save Message to Database
+// Fonction d'enregistrement d'un message dans la base de données
 async function saveMessage(sender, recipient, message) {
   try {
     const result = await pool.query(
@@ -269,7 +269,7 @@ async function saveMessage(sender, recipient, message) {
   }
 }
 
-// Start Server
+// Démarrage du serveur
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Serveur en cours d'exécution sur http://localhost:${PORT}`);
