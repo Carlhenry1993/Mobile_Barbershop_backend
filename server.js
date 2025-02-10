@@ -106,6 +106,7 @@ io.on("connection", (socket) => {
       return socket.disconnect();
     }
     adminSocket = socket;
+    // À la connexion de l'admin, envoyer la liste courante des clients
     socket.emit("update_client_list", Object.values(clientsMap));
 
     // L'administrateur peut envoyer une annonce
@@ -125,8 +126,8 @@ io.on("connection", (socket) => {
       }
     });
   } else if (user.role === "client") {
-    // Enregistrement du client dans clientsMap
-    clientsMap[user.id] = { id: user.id, name: user.username, socketId: socket.id };
+    // Enregistrement du client avec un nom par défaut si user.username est vide
+    clientsMap[user.id] = { id: user.id, name: user.username || `Client ${user.id}`, socketId: socket.id };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
@@ -139,8 +140,10 @@ io.on("connection", (socket) => {
       if (adminSocket) {
         try {
           const savedMessage = await saveMessage(user.id, "admin", message);
+          // Envoyer le message uniquement à l'admin avec l'ID de l'expéditeur
           adminSocket.emit("new_message", {
             sender: user.username || `Client ${user.id}`,
+            senderId: user.id,
             message: savedMessage.message,
           });
         } catch (err) {
@@ -165,8 +168,10 @@ io.on("connection", (socket) => {
     if (clientSocketId) {
       try {
         const savedMessage = await saveMessage("admin", clientId, message);
+        // Envoyer le message à l'utilisateur ciblé avec senderId "admin"
         io.to(clientSocketId).emit("new_message", {
           sender: "admin",
+          senderId: "admin",
           message: savedMessage.message,
         });
       } catch (err) {
@@ -179,7 +184,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // --- Événements de signalisation WebRTC pour les appels vocaux/vidéo ---
+  // --- Événements de signalisation WebRTC pour appels vocaux/vidéo ---
   socket.on("call_offer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     console.log(`Appel OFFER de ${user.id} vers ${data.to} (socket cible: ${targetSocketId})`);
@@ -237,7 +242,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Déconnexion : mise à jour des sockets enregistrés
+  // Déconnexion : mise à jour de la liste des clients et notification à l'admin
   socket.on("disconnect", () => {
     console.log(`${user.role} déconnecté : ${user.username || user.id}`);
     if (user.role === "client") {
