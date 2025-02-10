@@ -1,3 +1,4 @@
+// controllers/announcementController.js
 const pool = require("../db/pool");
 
 // Récupérer toutes les annonces
@@ -11,13 +12,12 @@ exports.getAllAnnouncements = async (req, res) => {
   }
 };
 
-// Créer une nouvelle annonce (seulement pour l'admin)
+// Créer une nouvelle annonce (admin uniquement)
 exports.createAnnouncement = async (req, res) => {
   const { title, content } = req.body;
   if (!title || !content) {
     return res.status(400).json({ message: "Titre et contenu sont requis" });
   }
-
   try {
     const result = await pool.query(
       "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP) RETURNING *",
@@ -30,15 +30,13 @@ exports.createAnnouncement = async (req, res) => {
   }
 };
 
-// Mettre à jour une annonce (seulement pour l'admin)
+// Mettre à jour une annonce (admin uniquement)
 exports.updateAnnouncement = async (req, res) => {
   const { id } = req.params;
   const { title, content } = req.body;
-
   if (!title || !content) {
     return res.status(400).json({ message: "Titre et contenu sont requis" });
   }
-
   try {
     const result = await pool.query(
       "UPDATE announcements SET title = $1, content = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3 RETURNING *",
@@ -54,10 +52,9 @@ exports.updateAnnouncement = async (req, res) => {
   }
 };
 
-// Supprimer une annonce (seulement pour l'admin)
+// Supprimer une annonce (admin uniquement)
 exports.deleteAnnouncement = async (req, res) => {
   const { id } = req.params;
-
   try {
     const result = await pool.query("DELETE FROM announcements WHERE id = $1 RETURNING *", [id]);
     if (result.rowCount === 0) {

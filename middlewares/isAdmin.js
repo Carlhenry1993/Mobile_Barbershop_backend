@@ -2,7 +2,7 @@
 const jwt = require("jsonwebtoken");
 
 const isAdmin = (req, res, next) => {
-  // Retrieve token from the Authorization header (Bearer token)
+  // Extraction du token depuis l'en-tête Authorization (format "Bearer token")
   const token = req.headers.authorization?.split(" ")[1];
   if (!token) {
     return res.status(403).json({ message: "Accès interdit" });
