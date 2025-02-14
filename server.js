@@ -238,7 +238,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle client or admin disconnection
+  // Handle disconnection
   socket.on("disconnect", () => {
     console.log(`${user.role} disconnected: ${user.username || user.id}`);
     if (user.role === "client") {
