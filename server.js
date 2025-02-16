@@ -1,16 +1,10 @@
-require("dotenv").config(); 
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const http = require("http");
 const { Server } = require("socket.io");
 const pool = require("./db/pool");
-
-// Import routes
-const announcementRoutes = require("./routes/announcementRoutes");
-const authRoutes = require("./routes/authRoutes");
-const bookingRoutes = require("./routes/bookingRoutes");
-const contactRoutes = require("./routes/contactRoutes");
 
 const app = express();
 
@@ -29,12 +23,24 @@ app.use(
 app.use(express.json());
 app.options("*", cors());
 
+// Serve static audio files with CORS headers
+app.use("/sounds", express.static("sounds", {
+  setHeaders: function (res, path) {
+    res.set("Access-Control-Allow-Origin", "*");
+  }
+}));
+
 // Base route for health check
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
 // Mount routes
+const announcementRoutes = require("./routes/announcementRoutes");
+const authRoutes = require("./routes/authRoutes");
+const bookingRoutes = require("./routes/bookingRoutes");
+const contactRoutes = require("./routes/contactRoutes");
+
 app.use("/api/announcements", announcementRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
@@ -109,7 +115,6 @@ io.on("connection", (socket) => {
     // Send current client list to admin
     socket.emit("update_client_list", Object.values(clientsMap));
 
-    // Admin sends an announcement
     socket.on("send_announcement", async ({ title, content }) => {
       if (!title || !content) {
         return socket.emit("error", { message: "Title or content missing" });
@@ -126,13 +131,11 @@ io.on("connection", (socket) => {
       }
     });
   } else if (user.role === "client") {
-    // Register client with a default name if username is empty
     clientsMap[user.id] = { id: user.id, name: user.username || `Client ${user.id}`, socketId: socket.id };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
 
-    // Client sends a message to admin
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) {
         return socket.emit("error", { message: "Message is empty" });
@@ -155,7 +158,6 @@ io.on("connection", (socket) => {
     });
   }
 
-  // Admin sends a message to a client
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
       return socket.emit("error", { message: "Only admin can send messages to clients" });
@@ -238,7 +240,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Handle disconnection
   socket.on("disconnect", () => {
     console.log(`${user.role} disconnected: ${user.username || user.id}`);
     if (user.role === "client") {
