@@ -29,11 +29,11 @@ app.use(
   express.static("sounds", {
     setHeaders: function (res, path) {
       res.set("Access-Control-Allow-Origin", "*");
-    },
+    }
   })
 );
 
-// Base route for health check
+// Health check route
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
@@ -49,18 +49,16 @@ app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// Handle 404 routes
+// 404 and global error handling
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
-
-// Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// Create HTTP server and configure Socket.IO
+// Create HTTP server and Socket.IO instance
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -81,10 +79,9 @@ let adminSocket = null;
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Authentication missing"));
-
   try {
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    if (user.role !== "admin" && user.role !== "client") {
+    if (!["admin", "client"].includes(user.role)) {
       return next(new Error("Invalid user role"));
     }
     socket.user = user;
@@ -97,11 +94,8 @@ io.use((socket, next) => {
 
 // Helper function to get target socket ID
 const getTargetSocketId = (target) => {
-  if (target === "admin") {
-    return adminSocket ? adminSocket.id : null;
-  } else {
-    return clientsMap[target] ? clientsMap[target].socketId : null;
-  }
+  if (target === "admin") return adminSocket ? adminSocket.id : null;
+  return clientsMap[target] ? clientsMap[target].socketId : null;
 };
 
 // Socket.IO connection handler
@@ -115,13 +109,10 @@ io.on("connection", (socket) => {
       return socket.disconnect();
     }
     adminSocket = socket;
-    // Send current client list to admin
     socket.emit("update_client_list", Object.values(clientsMap));
 
     socket.on("send_announcement", async ({ title, content }) => {
-      if (!title || !content) {
-        return socket.emit("error", { message: "Title or content missing" });
-      }
+      if (!title || !content) return socket.emit("error", { message: "Title or content missing" });
       try {
         const result = await pool.query(
           "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, NOW()) RETURNING *",
@@ -139,14 +130,10 @@ io.on("connection", (socket) => {
       name: user.username || `Client ${user.id}`,
       socketId: socket.id,
     };
-    if (adminSocket) {
-      adminSocket.emit("update_client_list", Object.values(clientsMap));
-    }
+    if (adminSocket) adminSocket.emit("update_client_list", Object.values(clientsMap));
 
     socket.on("send_message_to_admin", async ({ message }) => {
-      if (!message) {
-        return socket.emit("error", { message: "Message is empty" });
-      }
+      if (!message) return socket.emit("error", { message: "Message is empty" });
       if (adminSocket) {
         try {
           const savedMessage = await saveMessage(user.id, "admin", message);
@@ -166,12 +153,10 @@ io.on("connection", (socket) => {
   }
 
   socket.on("send_message_to_client", async ({ clientId, message }) => {
-    if (user.role !== "admin") {
+    if (user.role !== "admin")
       return socket.emit("error", { message: "Only admin can send messages to clients" });
-    }
-    if (!clientId || !message) {
+    if (!clientId || !message)
       return socket.emit("error", { message: "Client ID or message missing" });
-    }
     const clientSocketId = clientsMap[clientId]?.socketId;
     if (clientSocketId) {
       try {
@@ -242,10 +227,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // Revised call_end handler: notify both sender and recipient
   socket.on("call_end", (data) => {
     console.log(`Call end from ${user.id} targeting ${data.to}`);
-    // Send call_end back to the sender as well as the target
+    // Notify both sender and target
     socket.emit("call_end", { from: user.id });
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
