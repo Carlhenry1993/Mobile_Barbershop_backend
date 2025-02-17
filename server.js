@@ -8,7 +8,9 @@ const pool = require("./db/pool");
 
 const app = express();
 
-// CORS configuration
+/* === Middleware Setup === */
+
+// Configure CORS to allow trusted origins
 app.use(
   cors({
     origin: [
@@ -20,45 +22,47 @@ app.use(
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// Parse incoming JSON requests
 app.use(express.json());
 app.options("*", cors());
 
-// Serve static audio files with CORS headers
+// Serve static audio files with appropriate CORS headers
 app.use(
   "/sounds",
   express.static("sounds", {
-    setHeaders: (res, path) => {
+    setHeaders: (res) => {
       res.set("Access-Control-Allow-Origin", "*");
-    }
+    },
   })
 );
 
-// Health check route
+/* === REST API Routes === */
+
+// Health check endpoint
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount REST routes
-const announcementRoutes = require("./routes/announcementRoutes");
-const authRoutes = require("./routes/authRoutes");
-const bookingRoutes = require("./routes/bookingRoutes");
-const contactRoutes = require("./routes/contactRoutes");
+// Mount additional REST routes
+app.use("/api/announcements", require("./routes/announcementRoutes"));
+app.use("/api/auth", require("./routes/authRoutes"));
+app.use("/send-email", require("./routes/bookingRoutes"));
+app.use("/api/contact", require("./routes/contactRoutes"));
 
-app.use("/api/announcements", announcementRoutes);
-app.use("/api/auth", authRoutes);
-app.use("/send-email", bookingRoutes);
-app.use("/api/contact", contactRoutes);
-
-// 404 and global error handler
+// Handle 404 - Not Found
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
+
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error(err.stack);
+  console.error("Global error:", err.stack);
   res.status(500).json({ error: "Internal server error" });
 });
 
-// Create HTTP server and Socket.IO instance
+/* === HTTP & Socket.IO Server Setup === */
+
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -71,7 +75,9 @@ const io = new Server(server, {
   },
 });
 
-// In-memory storage for connected clients and admin
+/* === Socket.IO Connection Management === */
+
+// In-memory storage for connected clients and the admin
 const clientsMap = {};
 let adminSocket = null;
 
@@ -92,44 +98,58 @@ io.use((socket, next) => {
   }
 });
 
-// Helper to get target socket ID
+// Helper function to determine the target socket ID
 const getTargetSocketId = (target) => {
   if (target === "admin") return adminSocket ? adminSocket.id : null;
   return clientsMap[target] ? clientsMap[target].socketId : null;
 };
 
-// Socket.IO connection handler
+// Main Socket.IO connection handler
 io.on("connection", (socket) => {
   const user = socket.user;
   console.log(`${user.role} connected: ${user.username || user.id}`);
 
+  // Handle admin connection
   if (user.role === "admin") {
     if (adminSocket) {
-      console.log("Another admin is already connected.");
+      console.log("Another admin is already connected. Disconnecting duplicate.");
       return socket.disconnect();
     }
     adminSocket = socket;
+    // Send current client list to the admin
     socket.emit("update_client_list", Object.values(clientsMap));
+
+    // Listen for announcement creation events
     socket.on("send_announcement", async ({ title, content }) => {
-      if (!title || !content) return socket.emit("error", { message: "Title or content missing" });
+      if (!title || !content) {
+        return socket.emit("error", { message: "Title or content missing" });
+      }
       try {
         const result = await pool.query(
           "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, NOW()) RETURNING *",
           [title, content]
         );
+        // Broadcast the new announcement to all connected clients
         io.emit("new_announcement", result.rows[0]);
       } catch (err) {
         console.error("Error adding announcement:", err.message);
         socket.emit("error", { message: "Error adding announcement" });
       }
     });
-  } else if (user.role === "client") {
+  }
+
+  // Handle client connection
+  else if (user.role === "client") {
     clientsMap[user.id] = {
       id: user.id,
       name: user.username || `Client ${user.id}`,
       socketId: socket.id,
     };
-    if (adminSocket) adminSocket.emit("update_client_list", Object.values(clientsMap));
+    // Update admin's client list if admin is connected
+    if (adminSocket) {
+      adminSocket.emit("update_client_list", Object.values(clientsMap));
+    }
+    // Listen for messages sent to the admin
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) return socket.emit("error", { message: "Message is empty" });
       if (adminSocket) {
@@ -150,11 +170,14 @@ io.on("connection", (socket) => {
     });
   }
 
+  // Listen for admin-to-client messages
   socket.on("send_message_to_client", async ({ clientId, message }) => {
-    if (user.role !== "admin")
+    if (user.role !== "admin") {
       return socket.emit("error", { message: "Only admin can send messages to clients" });
-    if (!clientId || !message)
+    }
+    if (!clientId || !message) {
       return socket.emit("error", { message: "Client ID or message missing" });
+    }
     const clientSocketId = clientsMap[clientId]?.socketId;
     if (clientSocketId) {
       try {
@@ -174,7 +197,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // WebRTC signaling events
+  /* --- WebRTC Signaling Events --- */
+
+  // Handle call offer
   socket.on("call_offer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
@@ -189,6 +214,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle call answer
   socket.on("call_answer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
@@ -202,6 +228,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle ICE candidates for WebRTC
   socket.on("call_candidate", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
@@ -215,19 +242,21 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle call rejection
   socket.on("call_reject", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_reject", { from: user.id });
-      console.log(`Call reject from ${user.id} sent to ${data.to}`);
+      console.log(`Call rejection from ${user.id} sent to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
+  // Handle call termination
   socket.on("call_end", (data) => {
     console.log(`Call end from ${user.id} targeting ${data.to}`);
-    // Notify both sender and target
+    // Notify sender and target about call end
     socket.emit("call_end", { from: user.id });
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
@@ -238,6 +267,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // Handle disconnections
   socket.on("disconnect", () => {
     console.log(`${user.role} disconnected: ${user.username || user.id}`);
     if (user.role === "client") {
@@ -252,7 +282,9 @@ io.on("connection", (socket) => {
   });
 });
 
-// Function to save a message to the database
+/* === Database Interaction === */
+
+// Save a message to the database
 async function saveMessage(sender, recipient, message) {
   try {
     const result = await pool.query(
@@ -268,7 +300,8 @@ async function saveMessage(sender, recipient, message) {
   }
 }
 
-// Start the server
+/* === Start Server === */
+
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
