@@ -27,7 +27,7 @@ app.options("*", cors());
 app.use(
   "/sounds",
   express.static("sounds", {
-    setHeaders: function (res, path) {
+    setHeaders: (res, path) => {
       res.set("Access-Control-Allow-Origin", "*");
     }
   })
@@ -38,7 +38,7 @@ app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount routes
+// Mount REST routes
 const announcementRoutes = require("./routes/announcementRoutes");
 const authRoutes = require("./routes/authRoutes");
 const bookingRoutes = require("./routes/bookingRoutes");
@@ -49,7 +49,7 @@ app.use("/api/auth", authRoutes);
 app.use("/send-email", bookingRoutes);
 app.use("/api/contact", contactRoutes);
 
-// 404 and global error handling
+// 404 and global error handler
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
@@ -92,7 +92,7 @@ io.use((socket, next) => {
   }
 });
 
-// Helper function to get target socket ID
+// Helper to get target socket ID
 const getTargetSocketId = (target) => {
   if (target === "admin") return adminSocket ? adminSocket.id : null;
   return clientsMap[target] ? clientsMap[target].socketId : null;
@@ -110,7 +110,6 @@ io.on("connection", (socket) => {
     }
     adminSocket = socket;
     socket.emit("update_client_list", Object.values(clientsMap));
-
     socket.on("send_announcement", async ({ title, content }) => {
       if (!title || !content) return socket.emit("error", { message: "Title or content missing" });
       try {
@@ -131,7 +130,6 @@ io.on("connection", (socket) => {
       socketId: socket.id,
     };
     if (adminSocket) adminSocket.emit("update_client_list", Object.values(clientsMap));
-
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) return socket.emit("error", { message: "Message is empty" });
       if (adminSocket) {
