@@ -24,11 +24,14 @@ app.use(express.json());
 app.options("*", cors());
 
 // Serve static audio files with CORS headers
-app.use("/sounds", express.static("sounds", {
-  setHeaders: function (res, path) {
-    res.set("Access-Control-Allow-Origin", "*");
-  }
-}));
+app.use(
+  "/sounds",
+  express.static("sounds", {
+    setHeaders: function (res, path) {
+      res.set("Access-Control-Allow-Origin", "*");
+    },
+  })
+);
 
 // Base route for health check
 app.get("/", (req, res) => {
@@ -131,7 +134,11 @@ io.on("connection", (socket) => {
       }
     });
   } else if (user.role === "client") {
-    clientsMap[user.id] = { id: user.id, name: user.username || `Client ${user.id}`, socketId: socket.id };
+    clientsMap[user.id] = {
+      id: user.id,
+      name: user.username || `Client ${user.id}`,
+      socketId: socket.id,
+    };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
@@ -193,6 +200,7 @@ io.on("connection", (socket) => {
         callType: data.callType,
         offer: data.offer,
       });
+      console.log(`Call offer from ${user.id} sent to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
@@ -205,6 +213,7 @@ io.on("connection", (socket) => {
         from: user.id,
         answer: data.answer,
       });
+      console.log(`Call answer from ${user.id} sent to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
@@ -217,6 +226,7 @@ io.on("connection", (socket) => {
         from: user.id,
         candidate: data.candidate,
       });
+      console.log(`ICE candidate from ${user.id} sent to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
@@ -226,15 +236,21 @@ io.on("connection", (socket) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_reject", { from: user.id });
+      console.log(`Call reject from ${user.id} sent to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
+  // Revised call_end handler: notify both sender and recipient
   socket.on("call_end", (data) => {
+    console.log(`Call end from ${user.id} targeting ${data.to}`);
+    // Send call_end back to the sender as well as the target
+    socket.emit("call_end", { from: user.id });
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_end", { from: user.id });
+      console.log(`Call end emitted to ${data.to}`);
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
