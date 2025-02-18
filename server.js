@@ -104,7 +104,6 @@ const getTargetSocketId = (target) => {
   return clientsMap[target] ? clientsMap[target].socketId : null;
 };
 
-// Main Socket.IO connection handler
 io.on("connection", (socket) => {
   const user = socket.user;
   console.log(`${user.role} connected: ${user.username || user.id}`);
@@ -118,6 +117,14 @@ io.on("connection", (socket) => {
     adminSocket = socket;
     // Send current client list to the admin
     socket.emit("update_client_list", Object.values(clientsMap));
+    // Broadcast admin online status to all clients
+    io.emit("admin_status", { online: true });
+
+    // Listen for admin_status updates from the admin
+    socket.on("admin_status", (data) => {
+      console.log("Received admin status update:", data);
+      io.emit("admin_status", data);
+    });
 
     // Listen for announcement creation events
     socket.on("send_announcement", async ({ title, content }) => {
@@ -277,7 +284,8 @@ io.on("connection", (socket) => {
       }
     } else if (user.role === "admin") {
       adminSocket = null;
-      io.emit("admin_disconnected");
+      // Broadcast that the admin is now offline
+      io.emit("admin_status", { online: false });
     }
   });
 });
