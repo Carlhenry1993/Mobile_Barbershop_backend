@@ -80,6 +80,8 @@ const io = new Server(server, {
 // In-memory storage for connected clients and the admin
 const clientsMap = {};
 let adminSocket = null;
+// Global flag to track admin's connection status
+let isAdminOnline = false;
 
 // Socket.IO authentication middleware
 io.use((socket, next) => {
@@ -115,16 +117,11 @@ io.on("connection", (socket) => {
       return socket.disconnect();
     }
     adminSocket = socket;
+    isAdminOnline = true;
     // Send current client list to the admin
     socket.emit("update_client_list", Object.values(clientsMap));
     // Broadcast admin online status to all clients
     io.emit("admin_status", { online: true });
-
-    // Listen for admin_status updates from the admin
-    socket.on("admin_status", (data) => {
-      console.log("Received admin status update:", data);
-      io.emit("admin_status", data);
-    });
 
     // Listen for announcement creation events
     socket.on("send_announcement", async ({ title, content }) => {
@@ -144,7 +141,6 @@ io.on("connection", (socket) => {
       }
     });
   }
-
   // Handle client connection
   else if (user.role === "client") {
     clientsMap[user.id] = {
@@ -156,6 +152,9 @@ io.on("connection", (socket) => {
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
+    // Immediately send the current admin status to the newly connected client
+    socket.emit("admin_status", { online: isAdminOnline });
+
     // Listen for messages sent to the admin
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) return socket.emit("error", { message: "Message is empty" });
@@ -284,6 +283,7 @@ io.on("connection", (socket) => {
       }
     } else if (user.role === "admin") {
       adminSocket = null;
+      isAdminOnline = false;
       // Broadcast that the admin is now offline
       io.emit("admin_status", { online: false });
     }
