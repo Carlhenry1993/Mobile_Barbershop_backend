@@ -108,7 +108,7 @@ const getTargetSocketId = (target) => {
 
 io.on("connection", (socket) => {
   const user = socket.user;
-  console.log(`${user.role} connected: ${user.username || user.id}`);
+  console.log(`${user.role} connected: ${user.username || user.name || user.id}`);
 
   // Handle admin connection
   if (user.role === "admin") {
@@ -143,10 +143,10 @@ io.on("connection", (socket) => {
   }
   // Handle client connection
   else if (user.role === "client") {
-    // Store the client with a 'name' property using the username
+    // Store the client with a 'name' property, using user.username or user.name if available.
     clientsMap[user.id] = {
       id: user.id,
-      name: user.username || `Client ${user.id}`,
+      name: user.username || user.name || `Client ${user.id}`,
       socketId: socket.id,
     };
     // Update admin's client list if admin is connected
@@ -163,7 +163,7 @@ io.on("connection", (socket) => {
         try {
           const savedMessage = await saveMessage(user.id, "admin", message);
           adminSocket.emit("new_message", {
-            sender: user.username || `Client ${user.id}`,
+            sender: user.username || user.name || `Client ${user.id}`,
             senderId: user.id,
             message: savedMessage.message,
           });
@@ -276,7 +276,7 @@ io.on("connection", (socket) => {
 
   // Handle disconnections
   socket.on("disconnect", () => {
-    console.log(`${user.role} disconnected: ${user.username || user.id}`);
+    console.log(`${user.role} disconnected: ${user.username || user.name || user.id}`);
     if (user.role === "client") {
       delete clientsMap[user.id];
       if (adminSocket) {
