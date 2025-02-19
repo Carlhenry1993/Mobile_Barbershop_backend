@@ -143,6 +143,7 @@ io.on("connection", (socket) => {
   }
   // Handle client connection
   else if (user.role === "client") {
+    // Store the client with a 'name' property using the username
     clientsMap[user.id] = {
       id: user.id,
       name: user.username || `Client ${user.id}`,
