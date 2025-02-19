@@ -1,4 +1,3 @@
-// controllers/authController.js
 const pool = require("../db/pool");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -22,8 +21,8 @@ exports.register = async (req, res) => {
       [username, hashedPassword, role]
     );
     const user = result.rows[0];
-    // Generate a token
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    // Generate a token including the username in the payload
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
     res.status(201).json({ token, user });
   } catch (error) {
     console.error("Erreur lors de l'inscription:", error);
@@ -48,8 +47,8 @@ exports.login = async (req, res) => {
     if (!isMatch) {
       return res.status(400).json({ message: "Identifiants invalides." });
     }
-    // Generate a token
-    const token = jwt.sign({ id: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
+    // Generate a token including the username in the payload
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, process.env.JWT_SECRET, { expiresIn: "1d" });
     res.json({ token, user });
   } catch (error) {
     console.error("Erreur lors de la connexion:", error);
