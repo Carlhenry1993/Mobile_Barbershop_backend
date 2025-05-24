@@ -17,7 +17,9 @@ app.use(
       "http://localhost:3000",
       "http://localhost:3001",
       "https://mobile-barbershop-frontend.vercel.app",
-    ],
+      "https://mrrenaudinbarbershop.com", // domaine principal
+      "https://www.mrrenaudinbarbershop.com", // version avec www si applicable
+    ],    
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -313,5 +315,6 @@ async function saveMessage(sender, recipient, message) {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);  
 });
+
