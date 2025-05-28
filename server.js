@@ -17,9 +17,9 @@ app.use(
       "http://localhost:3000",
       "http://localhost:3001",
       "https://mobile-barbershop-frontend.vercel.app",
-      "https://mrrenaudinbarbershop.com", // domaine principal
-      "https://www.mrrenaudinbarbershop.com", // version avec www si applicable
-    ],    
+      "https://mrrenaudinbarbershop.com",
+      "https://www.mrrenaudinbarbershop.com",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
@@ -41,23 +41,19 @@ app.use(
 
 /* === REST API Routes === */
 
-// Health check endpoint
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
 
-// Mount additional REST routes
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/send-email", require("./routes/bookingRoutes"));
 app.use("/api/contact", require("./routes/contactRoutes"));
 
-// Handle 404 - Not Found
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
 
-// Global error handler
 app.use((err, req, res, next) => {
   console.error("Global error:", err.stack);
   res.status(500).json({ error: "Internal server error" });
@@ -79,10 +75,8 @@ const io = new Server(server, {
 
 /* === Socket.IO Connection Management === */
 
-// In-memory storage for connected clients and the admin
 const clientsMap = {};
 let adminSocket = null;
-// Global flag to track admin's connection status
 let isAdminOnline = false;
 
 // Socket.IO authentication middleware
@@ -110,9 +104,8 @@ const getTargetSocketId = (target) => {
 
 io.on("connection", (socket) => {
   const user = socket.user;
-  console.log(`${user.role} connected: ${user.username || user.name || user.id}`);
+  console.log(`${user.role} connected: ${user.username || user.name || user.id} (socket: ${socket.id})`);
 
-  // Handle admin connection
   if (user.role === "admin") {
     if (adminSocket) {
       console.log("Another admin is already connected. Disconnecting duplicate.");
@@ -120,12 +113,9 @@ io.on("connection", (socket) => {
     }
     adminSocket = socket;
     isAdminOnline = true;
-    // Send current client list to the admin
     socket.emit("update_client_list", Object.values(clientsMap));
-    // Broadcast admin online status to all clients
     io.emit("admin_status", { online: true });
 
-    // Listen for announcement creation events
     socket.on("send_announcement", async ({ title, content }) => {
       if (!title || !content) {
         return socket.emit("error", { message: "Title or content missing" });
@@ -135,30 +125,23 @@ io.on("connection", (socket) => {
           "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, NOW()) RETURNING *",
           [title, content]
         );
-        // Broadcast the new announcement to all connected clients
         io.emit("new_announcement", result.rows[0]);
       } catch (err) {
         console.error("Error adding announcement:", err.message);
         socket.emit("error", { message: "Error adding announcement" });
       }
     });
-  }
-  // Handle client connection
-  else if (user.role === "client") {
-    // Store the client with a 'name' property, using user.username or user.name if available.
+  } else if (user.role === "client") {
     clientsMap[user.id] = {
       id: user.id,
       name: user.username || user.name || `Client ${user.id}`,
       socketId: socket.id,
     };
-    // Update admin's client list if admin is connected
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
     }
-    // Immediately send the current admin status to the newly connected client
     socket.emit("admin_status", { online: isAdminOnline });
 
-    // Listen for messages sent to the admin
     socket.on("send_message_to_admin", async ({ message }) => {
       if (!message) return socket.emit("error", { message: "Message is empty" });
       if (adminSocket) {
@@ -179,7 +162,6 @@ io.on("connection", (socket) => {
     });
   }
 
-  // Listen for admin-to-client messages
   socket.on("send_message_to_client", async ({ clientId, message }) => {
     if (user.role !== "admin") {
       return socket.emit("error", { message: "Only admin can send messages to clients" });
@@ -208,77 +190,88 @@ io.on("connection", (socket) => {
 
   /* --- WebRTC Signaling Events --- */
 
-  // Handle call offer
   socket.on("call_offer", (data) => {
-    const targetSocketId = getTargetSocketId(data.to);
+    const { to, callType, offer } = data;
+    const targetSocketId = getTargetSocketId(to);
+    console.log(`call_offer received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_offer", {
         from: user.id,
-        callType: data.callType,
-        offer: data.offer,
+        callType,
+        offer,
       });
-      console.log(`Call offer from ${user.id} sent to ${data.to}`);
+      console.log(`call_offer sent to ${to} (socket: ${targetSocketId})`);
+      socket.emit("call_status", { status: "offer_sent", to });
     } else {
+      console.error(`Target not found for call_offer: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
-  // Handle call answer
   socket.on("call_answer", (data) => {
-    const targetSocketId = getTargetSocketId(data.to);
+    const { to, answer } = data;
+    const targetSocketId = getTargetSocketId(to);
+    console.log(`call_answer received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_answer", {
         from: user.id,
-        answer: data.answer,
+        answer,
       });
-      console.log(`Call answer from ${user.id} sent to ${data.to}`);
+      console.log(`call_answer sent to ${to} (socket: ${targetSocketId})`);
+      socket.emit("call_status", { status: "answer_sent", to });
     } else {
+      console.error(`Target not found for call_answer: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
-  // Handle ICE candidates for WebRTC
   socket.on("call_candidate", (data) => {
-    const targetSocketId = getTargetSocketId(data.to);
+    const { to, candidate } = data;
+    const targetSocketId = getTargetSocketId(to);
+    console.log(`call_candidate received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_candidate", {
         from: user.id,
-        candidate: data.candidate,
+        candidate,
       });
-      console.log(`ICE candidate from ${user.id} sent to ${data.to}`);
+      console.log(`call_candidate sent to ${to} (socket: ${targetSocketId})`);
     } else {
+      console.error(`Target not found for call_candidate: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
-  // Handle call rejection
   socket.on("call_reject", (data) => {
-    const targetSocketId = getTargetSocketId(data.to);
+    const { to } = data;
+    const targetSocketId = getTargetSocketId(to);
+    console.log(`call_reject received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_reject", { from: user.id });
-      console.log(`Call rejection from ${user.id} sent to ${data.to}`);
+      console.log(`call_reject sent to ${to} (socket: ${targetSocketId})`);
+      socket.emit("call_status", { status: "reject_sent", to });
     } else {
+      console.error(`Target not found for call_reject: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
-  // Handle call termination
   socket.on("call_end", (data) => {
-    console.log(`Call end from ${user.id} targeting ${data.to}`);
-    // Notify sender and target about call end
-    socket.emit("call_end", { from: user.id });
-    const targetSocketId = getTargetSocketId(data.to);
+    const { to } = data;
+    const targetSocketId = getTargetSocketId(to);
+    console.log(`call_end received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_end", { from: user.id });
-      console.log(`Call end emitted to ${data.to}`);
+      console.log(`call_end sent to ${to} (socket: ${targetSocketId})`);
+      socket.emit("call_status", { status: "end_sent", to });
     } else {
+      console.error(`Target not found for call_end: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
+    socket.emit("call_end", { from: user.id });
   });
 
-  // Handle disconnections
   socket.on("disconnect", () => {
-    console.log(`${user.role} disconnected: ${user.username || user.name || user.id}`);
+    console.log(`${user.role} disconnected: ${user.username || user.name || user.id} (socket: ${socket.id})`);
     if (user.role === "client") {
       delete clientsMap[user.id];
       if (adminSocket) {
@@ -287,7 +280,6 @@ io.on("connection", (socket) => {
     } else if (user.role === "admin") {
       adminSocket = null;
       isAdminOnline = false;
-      // Broadcast that the admin is now offline
       io.emit("admin_status", { online: false });
     }
   });
@@ -295,7 +287,6 @@ io.on("connection", (socket) => {
 
 /* === Database Interaction === */
 
-// Save a message to the database
 async function saveMessage(sender, recipient, message) {
   try {
     const result = await pool.query(
@@ -315,5 +306,5 @@ async function saveMessage(sender, recipient, message) {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);  
+  console.log(`Server running on port ${PORT}`);
 });
