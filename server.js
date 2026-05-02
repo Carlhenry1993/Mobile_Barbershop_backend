@@ -41,6 +41,22 @@ app.use(
 
 /* === REST API Routes === */
 
+
+app.get("/db-test", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({
+      success: true,
+      time: result.rows[0]
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
