@@ -42,6 +42,13 @@ app.use(
 /* === REST API Routes === */
 
 
+
+
+app.get("/", (req, res) => {
+  res.send("Backend is running!");
+});
+
+
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -55,10 +62,6 @@ app.get("/db-test", async (req, res) => {
       error: err.message
     });
   }
-});
-
-app.get("/", (req, res) => {
-  res.send("Backend is running!");
 });
 
 app.use("/api/announcements", require("./routes/announcementRoutes"));
