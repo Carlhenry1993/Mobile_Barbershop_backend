@@ -1,138 +1,117 @@
-const nodemailer = require('nodemailer');
-require('dotenv').config();
+const nodemailer = require("nodemailer");
+require("dotenv").config();
 
-// Create a transporter using Gmail's service
+/* =========================
+   TRANSPORTER (FIXED)
+========================= */
+
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: "smtp.gmail.com",
+  port: 587,
+  secure: false,
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS, // MUST be Google App Password
   },
 });
 
-// Email for notifying the barber about a new reservation
+/* Optional: verify connection on startup */
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("❌ Email server error:", error.message);
+  } else {
+    console.log("✅ Email server ready");
+  }
+});
+
+/* =========================
+   HELPERS
+========================= */
+
+const sendEmail = async (mailOptions) => {
+  try {
+    const info = await transporter.sendMail(mailOptions);
+    console.log("📧 Email sent:", info.messageId);
+    return info;
+  } catch (error) {
+    console.error("❌ Email sending failed:", error.message);
+    throw error;
+  }
+};
+
+/* =========================
+   EMAIL FUNCTIONS
+========================= */
+
 exports.notifyBarber = async (data) => {
-  const mailOptions = {
-    from: process.env.EMAIL_USER, // Service email address
-    to: process.env.BARBER_EMAIL,   // Barber's email address
-    replyTo: data.email,            // Client's email for direct replies
-    subject: 'Nouvelle réservation à vérifier',
-    text: `
-      Une nouvelle réservation a été effectuée :
-      - Nom complet : ${data.fullName}
-      - Numéro de téléphone : ${data.phoneNumber}
-      - E-mail : ${data.email}
-      - Adresse : ${data.address}
-      - Type de rasage : ${data.shavingType}
-      - Date préférée : ${data.preferredDate}
-      - Heure préférée : ${data.preferredTime}
-      - Memo : ${data.memo || 'Aucun'}
-      
-      Merci de vérifier cette réservation et de confirmer au client.
-    `,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log('Email envoyé au coiffeur avec succès');
-  } catch (error) {
-    console.error("Erreur lors de l'envoi de l'email au coiffeur :", error);
-    console.error(`Email envoyé à: ${mailOptions.to}`);
-    console.error(error.stack);
-    throw error;
-  }
-};
-
-// Email for confirming the reservation to the client
-exports.confirmToClient = async (data) => {
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: data.email,
-    subject: 'Confirmation de réservation - Statut: En attente',
-    html: `
-      <p>Bonjour <strong>${data.fullName}</strong>,</p>
-      <p>Nous avons bien reçu votre demande et nous la traitons actuellement. Votre réservation est en statut <strong>"En attente"</strong>. Nous vous contacterons bientôt une fois les détails confirmés pour valider définitivement votre rendez-vous.</p>
-      <p><strong>Voici les informations de votre réservation :</strong></p>
-      <ul>
-        <li><strong>Nom complet :</strong> ${data.fullName}</li>
-        <li><strong>Numéro de téléphone :</strong> ${data.phoneNumber}</li>
-        <li><strong>E-mail :</strong> ${data.email}</li>
-        <li><strong>Adresse :</strong> ${data.address}</li>
-        <li><strong>Type de rasage :</strong> ${data.shavingType}</li>
-        <li><strong>Date préférée :</strong> ${data.preferredDate}</li>
-        <li><strong>Heure préférée :</strong> ${data.preferredTime}</li>
-        <li><strong>Memo :</strong> ${data.memo || 'Aucun'}</li>
-      </ul>
-      <p>Merci d'avoir choisi nos services.</p>
-      <p>Cordialement,<br/>L'équipe de Mr. Renaudin Barbershop</p>
-    `,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log('Email de confirmation envoyé au client avec succès');
-  } catch (error) {
-    console.error("Erreur lors de l'envoi de l'email au client :", error);
-    console.error(`Email envoyé à: ${mailOptions.to}`);
-    console.error(error.stack);
-    throw error;
-  }
-};
-
-// Email for handling messages sent via the contact form
-exports.sendContactEmail = async (data) => {
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: process.env.BARBER_EMAIL, // Barber's email to receive the contact message
-    replyTo: data.email,          // Client's email for direct replies
-    subject: 'Nouveau message du formulaire de contact',
-    text: `
-      Nouveau message reçu depuis le formulaire de contact :
-      - Nom complet : ${data.fullName}
-      - E-mail : ${data.email}
-      - Message : ${data.message}
-    `,
-  };
-
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log('Email de contact envoyé avec succès');
-  } catch (error) {
-    console.error("Erreur lors de l'envoi de l'email de contact :", error);
-    console.error(`Email envoyé à: ${mailOptions.to}`);
-    console.error(error.stack);
-    throw error;
-  }
-};
-
-// Email to confirm that the reservation has been received (for the barber)
-exports.confirmBarberReceipt = async (data) => {
-  const mailOptions = {
+  return sendEmail({
     from: process.env.EMAIL_USER,
     to: process.env.BARBER_EMAIL,
-    subject: 'Réservation reçue',
+    replyTo: data.email,
+    subject: "Nouvelle réservation à vérifier",
     text: `
-      Bonjour,
+Une nouvelle réservation a été effectuée :
 
-      Une nouvelle réservation a été reçue avec succès. Veuillez la vérifier dans votre agenda.
-
-      Informations de la réservation :
-      - Nom complet : ${data.fullName}
-      - Téléphone : ${data.phoneNumber}
-      - Email : ${data.email}
-      - Type de rasage : ${data.shavingType}
-      - Date : ${data.preferredDate}
-      - Heure : ${data.preferredTime}
+- Nom complet : ${data.fullName}
+- Téléphone : ${data.phoneNumber}
+- E-mail : ${data.email}
+- Adresse : ${data.address}
+- Type de rasage : ${data.shavingType}
+- Date : ${data.preferredDate}
+- Heure : ${data.preferredTime}
+- Memo : ${data.memo || "Aucun"}
     `,
-  };
+  });
+};
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log('Email de confirmation de réception envoyé au coiffeur avec succès');
-  } catch (error) {
-    console.error("Erreur lors de l'envoi de l'email de confirmation de réception :", error);
-    console.error(`Email envoyé à: ${mailOptions.to}`);
-    console.error(error.stack);
-    throw error;
-  }
+exports.confirmToClient = async (data) => {
+  return sendEmail({
+    from: process.env.EMAIL_USER,
+    to: data.email,
+    subject: "Confirmation de réservation",
+    html: `
+      <p>Bonjour <strong>${data.fullName}</strong>,</p>
+      <p>Votre réservation est en <strong>attente</strong>.</p>
+      <p>Nous vous contacterons bientôt.</p>
+      <ul>
+        <li>Nom: ${data.fullName}</li>
+        <li>Téléphone: ${data.phoneNumber}</li>
+        <li>Adresse: ${data.address}</li>
+        <li>Date: ${data.preferredDate}</li>
+        <li>Heure: ${data.preferredTime}</li>
+      </ul>
+      <p>Merci 🙏</p>
+    `,
+  });
+};
+
+exports.sendContactEmail = async (data) => {
+  return sendEmail({
+    from: process.env.EMAIL_USER,
+    to: process.env.BARBER_EMAIL,
+    replyTo: data.email,
+    subject: "Nouveau message contact",
+    text: `
+Nom: ${data.fullName}
+Email: ${data.email}
+Message: ${data.message}
+    `,
+  });
+};
+
+exports.confirmBarberReceipt = async (data) => {
+  return sendEmail({
+    from: process.env.EMAIL_USER,
+    to: process.env.BARBER_EMAIL,
+    subject: "Réservation reçue",
+    text: `
+Nouvelle réservation :
+
+Nom: ${data.fullName}
+Téléphone: ${data.phoneNumber}
+Email: ${data.email}
+Date: ${data.preferredDate}
+Heure: ${data.preferredTime}
+    `,
+  });
 };
