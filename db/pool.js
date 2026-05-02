@@ -2,10 +2,9 @@
 const { Pool } = require("pg");
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false,
-  },
+  connectionString:
+    "postgresql://postgres.dknknkrxlhvhouyvldvd:FAAqkazgy@1993@aws-0-us-west-1.pooler.supabase.com:5432/postgres",
+  ssl: { rejectUnauthorized: false },
 });
 
 module.exports = pool;
