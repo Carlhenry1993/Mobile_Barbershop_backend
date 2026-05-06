@@ -8,9 +8,6 @@ const pool = require("./db/pool");
 
 const app = express();
 
-/* === Middleware Setup === */
-
-// Configure CORS to allow trusted origins
 app.use(
   cors({
     origin: [
@@ -25,11 +22,9 @@ app.use(
   })
 );
 
-// Parse incoming JSON requests
 app.use(express.json());
 app.options("*", cors());
 
-// Serve static audio files with appropriate CORS headers
 app.use(
   "/sounds",
   express.static("sounds", {
@@ -38,8 +33,6 @@ app.use(
     },
   })
 );
-
-/* === REST API Routes === */
 
 app.get("/", (req, res) => {
   res.send("Backend is running!");
@@ -60,7 +53,7 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
-// === NOUVELLES ROUTES POUR CHATAPP ===
+// === ROUTES CHAT ===
 app.get("/api/messages", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: "No token" });
@@ -69,9 +62,8 @@ app.get("/api/messages", async (req, res) => {
     const token = authHeader.split(" ")[1];
     const user = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Admin voit tous les messages, client voit seulement les siens + admin
     const query = user.role === "admin"
-     ? "SELECT * FROM messages ORDER BY timestamp ASC"
+  ? "SELECT * FROM messages ORDER BY timestamp ASC"
       : "SELECT * FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
 
     const params = user.role === "admin"? [] : [user.id.toString()];
@@ -82,7 +74,7 @@ app.get("/api/messages", async (req, res) => {
       sender_id: msg.sender,
       message: msg.message,
       timestamp: msg.timestamp,
-      read: msg.read
+      read: msg.is_read // mapping is_read -> read pour le front
     })));
   } catch (err) {
     console.error("Error fetching messages:", err.message);
@@ -97,11 +89,9 @@ app.put("/api/messages/markAsRead", async (req, res) => {
   try {
     const token = authHeader.split(" ")[1];
     const user = jwt.verify(token, process.env.JWT_SECRET);
-    const { userId } = req.body;
 
-    // Marquer comme lus les messages reçus par l'utilisateur connecté
     await pool.query(
-      "UPDATE messages SET read = true WHERE recipient = $1 AND read = false",
+      "UPDATE messages SET is_read = true WHERE recipient = $1 AND is_read = false",
       [user.id.toString()]
     );
 
@@ -126,8 +116,6 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: "Internal server error" });
 });
 
-/* === HTTP & Socket.IO Server Setup === */
-
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
@@ -142,13 +130,10 @@ const io = new Server(server, {
   },
 });
 
-/* === Socket.IO Connection Management === */
-
 const clientsMap = {};
 let adminSocket = null;
 let isAdminOnline = false;
 
-// Socket.IO authentication middleware
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Authentication missing"));
@@ -165,7 +150,6 @@ io.use((socket, next) => {
   }
 });
 
-// Helper function to determine the target socket ID
 const getTargetSocketId = (target) => {
   if (target === "admin") return adminSocket? adminSocket.id : null;
   return clientsMap[target]? clientsMap[target].socketId : null;
@@ -266,19 +250,16 @@ io.on("connection", (socket) => {
     }
   });
 
-  /* --- WebRTC Signaling Events --- */
-
   socket.on("call_offer", (data) => {
     const { to, callType, offer } = data;
     const targetSocketId = getTargetSocketId(to);
-    console.log(`call_offer received from ${user.id} (socket: ${socket.id}) to ${to}`);
+    console.log(`call_offer received from ${user.id} to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_offer", {
         from: user.id.toString(),
         callType,
         offer,
       });
-      console.log(`call_offer sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "offer_sent", to });
     } else {
       console.error(`Target not found for call_offer: ${to}`);
@@ -289,13 +270,12 @@ io.on("connection", (socket) => {
   socket.on("call_answer", (data) => {
     const { to, answer } = data;
     const targetSocketId = getTargetSocketId(to);
-    console.log(`call_answer received from ${user.id} (socket: ${socket.id}) to ${to}`);
+    console.log(`call_answer received from ${user.id} to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_answer", {
         from: user.id.toString(),
         answer,
       });
-      console.log(`call_answer sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "answer_sent", to });
     } else {
       console.error(`Target not found for call_answer: ${to}`);
@@ -311,21 +291,17 @@ io.on("connection", (socket) => {
         from: user.id.toString(),
         candidate,
       });
-    } else {
-      console.error(`Target not found for call_candidate: ${to}`);
     }
   });
 
   socket.on("call_reject", (data) => {
     const { to } = data;
     const targetSocketId = getTargetSocketId(to);
-    console.log(`call_reject received from ${user.id} (socket: ${socket.id}) to ${to}`);
+    console.log(`call_reject received from ${user.id} to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_reject", { from: user.id.toString() });
-      console.log(`call_reject sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "reject_sent", to });
     } else {
-      console.error(`Target not found for call_reject: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
@@ -341,14 +317,10 @@ io.on("connection", (socket) => {
   socket.on("call_end", (data) => {
     const { to } = data;
     const targetSocketId = getTargetSocketId(to);
-    console.log(`call_end received from ${user.id} (socket: ${socket.id}) to ${to}`);
+    console.log(`call_end received from ${user.id} to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_end", { from: user.id.toString() });
-      console.log(`call_end sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "end_sent", to });
-    } else {
-      console.error(`Target not found for call_end: ${to}`);
-      socket.emit("error", { message: "Call recipient not available" });
     }
     socket.emit("call_end", { from: user.id.toString() });
   });
@@ -368,12 +340,10 @@ io.on("connection", (socket) => {
   });
 });
 
-/* === Database Interaction === */
-
 async function saveMessage(sender, recipient, message) {
   try {
     const result = await pool.query(
-      "INSERT INTO messages (sender, recipient, message, timestamp, read) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, false) RETURNING *",
+      "INSERT INTO messages (sender, recipient, message, timestamp, is_read) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, false) RETURNING *",
       [sender, recipient, message]
     );
     const savedMessage = result.rows[0];
@@ -384,8 +354,6 @@ async function saveMessage(sender, recipient, message) {
     throw err;
   }
 }
-
-/* === Start Server === */
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
