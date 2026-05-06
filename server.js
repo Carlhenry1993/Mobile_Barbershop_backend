@@ -41,13 +41,9 @@ app.use(
 
 /* === REST API Routes === */
 
-
-
-
 app.get("/", (req, res) => {
   res.send("Backend is running!");
 });
-
 
 app.get("/db-test", async (req, res) => {
   try {
@@ -61,6 +57,58 @@ app.get("/db-test", async (req, res) => {
       success: false,
       error: err.message
     });
+  }
+});
+
+// === NOUVELLES ROUTES POUR CHATAPP ===
+app.get("/api/messages", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "No token" });
+
+  try {
+    const token = authHeader.split(" ")[1];
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Admin voit tous les messages, client voit seulement les siens + admin
+    const query = user.role === "admin"
+     ? "SELECT * FROM messages ORDER BY timestamp ASC"
+      : "SELECT * FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
+
+    const params = user.role === "admin"? [] : [user.id.toString()];
+    const result = await pool.query(query, params);
+
+    res.json(result.rows.map(msg => ({
+      id: msg.id,
+      sender_id: msg.sender,
+      message: msg.message,
+      timestamp: msg.timestamp,
+      read: msg.read
+    })));
+  } catch (err) {
+    console.error("Error fetching messages:", err.message);
+    res.status(500).json({ error: "Error fetching messages" });
+  }
+});
+
+app.put("/api/messages/markAsRead", async (req, res) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: "No token" });
+
+  try {
+    const token = authHeader.split(" ")[1];
+    const user = jwt.verify(token, process.env.JWT_SECRET);
+    const { userId } = req.body;
+
+    // Marquer comme lus les messages reçus par l'utilisateur connecté
+    await pool.query(
+      "UPDATE messages SET read = true WHERE recipient = $1 AND read = false",
+      [user.id.toString()]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error marking messages as read:", err.message);
+    res.status(500).json({ error: "Error marking messages as read" });
   }
 });
 
@@ -87,6 +135,8 @@ const io = new Server(server, {
       "http://localhost:3000",
       "http://localhost:3001",
       "https://mobile-barbershop-frontend.vercel.app",
+      "https://mrrenaudinbarbershop.com",
+      "https://www.mrrenaudinbarbershop.com",
     ],
     methods: ["GET", "POST"],
   },
@@ -117,8 +167,8 @@ io.use((socket, next) => {
 
 // Helper function to determine the target socket ID
 const getTargetSocketId = (target) => {
-  if (target === "admin") return adminSocket ? adminSocket.id : null;
-  return clientsMap[target] ? clientsMap[target].socketId : null;
+  if (target === "admin") return adminSocket? adminSocket.id : null;
+  return clientsMap[target]? clientsMap[target].socketId : null;
 };
 
 io.on("connection", (socket) => {
@@ -136,7 +186,7 @@ io.on("connection", (socket) => {
     io.emit("admin_status", { online: true });
 
     socket.on("send_announcement", async ({ title, content }) => {
-      if (!title || !content) {
+      if (!title ||!content) {
         return socket.emit("error", { message: "Title or content missing" });
       }
       try {
@@ -150,11 +200,18 @@ io.on("connection", (socket) => {
         socket.emit("error", { message: "Error adding announcement" });
       }
     });
+
+    socket.on("admin_status", ({ adminId, online }) => {
+      isAdminOnline = online;
+      io.emit("admin_status", { online });
+    });
+
   } else if (user.role === "client") {
     clientsMap[user.id] = {
       id: user.id,
       name: user.username || user.name || `Client ${user.id}`,
       socketId: socket.id,
+      online: true,
     };
     if (adminSocket) {
       adminSocket.emit("update_client_list", Object.values(clientsMap));
@@ -165,11 +222,12 @@ io.on("connection", (socket) => {
       if (!message) return socket.emit("error", { message: "Message is empty" });
       if (adminSocket) {
         try {
-          const savedMessage = await saveMessage(user.id, "admin", message);
+          const savedMessage = await saveMessage(user.id.toString(), "admin", message);
           adminSocket.emit("new_message", {
             sender: user.username || user.name || `Client ${user.id}`,
-            senderId: user.id,
+            senderId: user.id.toString(),
             message: savedMessage.message,
+            timestamp: savedMessage.timestamp,
           });
         } catch (err) {
           console.error("Error saving message:", err.message);
@@ -182,20 +240,21 @@ io.on("connection", (socket) => {
   }
 
   socket.on("send_message_to_client", async ({ clientId, message }) => {
-    if (user.role !== "admin") {
+    if (user.role!== "admin") {
       return socket.emit("error", { message: "Only admin can send messages to clients" });
     }
-    if (!clientId || !message) {
+    if (!clientId ||!message) {
       return socket.emit("error", { message: "Client ID or message missing" });
     }
     const clientSocketId = clientsMap[clientId]?.socketId;
     if (clientSocketId) {
       try {
-        const savedMessage = await saveMessage("admin", clientId, message);
+        const savedMessage = await saveMessage("admin", clientId.toString(), message);
         io.to(clientSocketId).emit("new_message", {
           sender: "admin",
           senderId: "admin",
           message: savedMessage.message,
+          timestamp: savedMessage.timestamp,
         });
       } catch (err) {
         console.error("Error sending message to client:", err.message);
@@ -215,7 +274,7 @@ io.on("connection", (socket) => {
     console.log(`call_offer received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_offer", {
-        from: user.id,
+        from: user.id.toString(),
         callType,
         offer,
       });
@@ -233,7 +292,7 @@ io.on("connection", (socket) => {
     console.log(`call_answer received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_answer", {
-        from: user.id,
+        from: user.id.toString(),
         answer,
       });
       console.log(`call_answer sent to ${to} (socket: ${targetSocketId})`);
@@ -247,16 +306,13 @@ io.on("connection", (socket) => {
   socket.on("call_candidate", (data) => {
     const { to, candidate } = data;
     const targetSocketId = getTargetSocketId(to);
-    console.log(`call_candidate received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_candidate", {
-        from: user.id,
+        from: user.id.toString(),
         candidate,
       });
-      console.log(`call_candidate sent to ${to} (socket: ${targetSocketId})`);
     } else {
       console.error(`Target not found for call_candidate: ${to}`);
-      socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
@@ -265,7 +321,7 @@ io.on("connection", (socket) => {
     const targetSocketId = getTargetSocketId(to);
     console.log(`call_reject received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
-      io.to(targetSocketId).emit("call_reject", { from: user.id });
+      io.to(targetSocketId).emit("call_reject", { from: user.id.toString() });
       console.log(`call_reject sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "reject_sent", to });
     } else {
@@ -274,19 +330,27 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("call_busy", (data) => {
+    const { to } = data;
+    const targetSocketId = getTargetSocketId(to);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit("call_busy", { from: user.id.toString() });
+    }
+  });
+
   socket.on("call_end", (data) => {
     const { to } = data;
     const targetSocketId = getTargetSocketId(to);
     console.log(`call_end received from ${user.id} (socket: ${socket.id}) to ${to}`);
     if (targetSocketId) {
-      io.to(targetSocketId).emit("call_end", { from: user.id });
+      io.to(targetSocketId).emit("call_end", { from: user.id.toString() });
       console.log(`call_end sent to ${to} (socket: ${targetSocketId})`);
       socket.emit("call_status", { status: "end_sent", to });
     } else {
       console.error(`Target not found for call_end: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
-    socket.emit("call_end", { from: user.id });
+    socket.emit("call_end", { from: user.id.toString() });
   });
 
   socket.on("disconnect", () => {
