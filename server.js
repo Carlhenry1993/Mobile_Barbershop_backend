@@ -6,30 +6,41 @@ const http = require("http");
 const { Server } = require("socket.io");
 const pool = require("./db/pool");
 
+if (!process.env.JWT_SECRET) {
+  console.error("FATAL: JWT_SECRET is not set");
+  process.exit(1);
+}
+
 const app = express();
 
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://mobile-barbershop-frontend.vercel.app",
-      "https://mrrenaudinbarbershop.com",
-      "https://www.mrrenaudinbarbershop.com",
-    ],
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
+// 1. CORS centralisé - une seule source de vérité
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "https://mobile-barbershop-frontend.vercel.app",
+  "https://mrrenaudinbarbershop.com",
+  "https://www.mrrenaudinbarbershop.com",
+];
 
-app.use(express.json());
-app.options("*", cors());
+const corsOptions = {
+  origin: (origin, cb) => {
+    if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    cb(new Error("Not allowed by CORS"));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
 
+app.use(cors(corsOptions)); // Gère aussi les OPTIONS automatiquement
+app.use(express.json({ limit: "1mb" })); // 2. Limite payload
+
+// 3. Static avec même CORS que l'API
 app.use(
   "/sounds",
   express.static("sounds", {
-    setHeaders: (res) => {
-      res.set("Access-Control-Allow-Origin", "*");
+    setHeaders: (res, path) => {
+      res.set("Access-Control-Allow-Origin", "*"); // OK car pas de credentials sur fichiers
+      res.set("Cache-Control", "public, max-age=31536000");
     },
   })
 );
@@ -41,60 +52,62 @@ app.get("/", (req, res) => {
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
-    res.json({
-      success: true,
-      time: result.rows[0]
-    });
+    res.json({ success: true, time: result.rows[0] });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// === ROUTES CHAT ===
-app.get("/api/messages", async (req, res) => {
+// 4. Middleware auth réutilisable
+const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "No token" });
-
+  if (!authHeader?.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "No token" });
+  }
   try {
     const token = authHeader.split(" ")[1];
-    const user = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Invalid token" });
+  }
+};
 
-    const query = user.role === "admin"
-  ? "SELECT * FROM messages ORDER BY timestamp ASC"
-      : "SELECT * FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
+// === ROUTES CHAT ===
+app.get("/api/messages", authenticate, async (req, res) => {
+  try {
+    const user = req.user;
+    const query =
+      user.role === "admin"
+       ? "SELECT id, sender, recipient, message, timestamp, is_read FROM messages ORDER BY timestamp ASC"
+        : "SELECT id, sender, recipient, message, timestamp, is_read FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
 
     const params = user.role === "admin"? [] : [user.id.toString()];
     const result = await pool.query(query, params);
 
-    res.json(result.rows.map(msg => ({
-      id: msg.id,
-      sender_id: msg.sender,
-      message: msg.message,
-      timestamp: msg.timestamp,
-      read: msg.is_read // mapping is_read -> read pour le front
-    })));
+    res.json(
+      result.rows.map((msg) => ({
+        id: msg.id,
+        sender_id: msg.sender,
+        recipient_id: msg.recipient,
+        message: msg.message,
+        timestamp: msg.timestamp,
+        read: msg.is_read,
+      }))
+    );
   } catch (err) {
     console.error("Error fetching messages:", err.message);
     res.status(500).json({ error: "Error fetching messages" });
   }
 });
 
-app.put("/api/messages/markAsRead", async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) return res.status(401).json({ error: "No token" });
-
+app.put("/api/messages/markAsRead", authenticate, async (req, res) => {
   try {
-    const token = authHeader.split(" ")[1];
-    const user = jwt.verify(token, process.env.JWT_SECRET);
-
+    const user = req.user;
     await pool.query(
       "UPDATE messages SET is_read = true WHERE recipient = $1 AND is_read = false",
       [user.id.toString()]
     );
-
     res.json({ success: true });
   } catch (err) {
     console.error("Error marking messages as read:", err.message);
@@ -118,19 +131,11 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: [
-      "http://localhost:3000",
-      "http://localhost:3001",
-      "https://mobile-barbershop-frontend.vercel.app",
-      "https://mrrenaudinbarbershop.com",
-      "https://www.mrrenaudinbarbershop.com",
-    ],
-    methods: ["GET", "POST"],
-  },
+  cors: { origin: allowedOrigins, methods: ["GET", "POST"] },
 });
 
-const clientsMap = {};
+// 5. Gestion propre des clients + admin
+const clientsMap = new Map(); // userId -> {name, socketId, online}
 let adminSocket = null;
 let isAdminOnline = false;
 
@@ -145,38 +150,39 @@ io.use((socket, next) => {
     socket.user = user;
     next();
   } catch (err) {
-    console.error("JWT authentication error:", err.message);
     next(new Error("Invalid token"));
   }
 });
 
 const getTargetSocketId = (target) => {
-  if (target === "admin") return adminSocket? adminSocket.id : null;
-  return clientsMap[target]? clientsMap[target].socketId : null;
+  if (target === "admin") return adminSocket?.id || null;
+  return clientsMap.get(target)?.socketId || null;
 };
 
 io.on("connection", (socket) => {
   const user = socket.user;
-  console.log(`${user.role} connected: ${user.username || user.name || user.id} (socket: ${socket.id})`);
+  console.log(`${user.role} connected: ${user.username || user.name || user.id}`);
 
   if (user.role === "admin") {
     if (adminSocket) {
-      console.log("Another admin is already connected. Disconnecting duplicate.");
-      return socket.disconnect();
+      socket.emit("error", { message: "Another admin is already connected" });
+      return socket.disconnect(true);
     }
     adminSocket = socket;
     isAdminOnline = true;
-    socket.emit("update_client_list", Object.values(clientsMap));
+    socket.emit("update_client_list", Array.from(clientsMap.values()));
     io.emit("admin_status", { online: true });
 
+    // 6. Sécurité : valider role côté socket aussi
     socket.on("send_announcement", async ({ title, content }) => {
+      if (socket.user.role!== "admin") return;
       if (!title ||!content) {
         return socket.emit("error", { message: "Title or content missing" });
       }
       try {
         const result = await pool.query(
           "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, NOW()) RETURNING *",
-          [title, content]
+          [title][content]
         );
         io.emit("new_announcement", result.rows[0]);
       } catch (err) {
@@ -185,40 +191,32 @@ io.on("connection", (socket) => {
       }
     });
 
-    socket.on("admin_status", ({ adminId, online }) => {
-      isAdminOnline = online;
-      io.emit("admin_status", { online });
-    });
-
   } else if (user.role === "client") {
-    clientsMap[user.id] = {
+    clientsMap.set(user.id, {
       id: user.id,
       name: user.username || user.name || `Client ${user.id}`,
       socketId: socket.id,
       online: true,
-    };
+    });
     if (adminSocket) {
-      adminSocket.emit("update_client_list", Object.values(clientsMap));
+      adminSocket.emit("update_client_list", Array.from(clientsMap.values()));
     }
     socket.emit("admin_status", { online: isAdminOnline });
 
     socket.on("send_message_to_admin", async ({ message }) => {
-      if (!message) return socket.emit("error", { message: "Message is empty" });
-      if (adminSocket) {
-        try {
-          const savedMessage = await saveMessage(user.id.toString(), "admin", message);
-          adminSocket.emit("new_message", {
-            sender: user.username || user.name || `Client ${user.id}`,
-            senderId: user.id.toString(),
-            message: savedMessage.message,
-            timestamp: savedMessage.timestamp,
-          });
-        } catch (err) {
-          console.error("Error saving message:", err.message);
-          socket.emit("error", { message: "Error saving message" });
-        }
-      } else {
-        socket.emit("error", { message: "No admin connected" });
+      if (!message?.trim()) return socket.emit("error", { message: "Message is empty" });
+      if (!adminSocket) return socket.emit("error", { message: "No admin connected" });
+      try {
+        const savedMessage = await saveMessage(user.id.toString(), "admin", message);
+        adminSocket.emit("new_message", {
+          sender: user.username || user.name || `Client ${user.id}`,
+          senderId: user.id.toString(),
+          message: savedMessage.message,
+          timestamp: savedMessage.timestamp,
+        });
+      } catch (err) {
+        console.error("Error saving message:", err.message);
+        socket.emit("error", { message: "Error saving message" });
       }
     });
   }
@@ -227,14 +225,14 @@ io.on("connection", (socket) => {
     if (user.role!== "admin") {
       return socket.emit("error", { message: "Only admin can send messages to clients" });
     }
-    if (!clientId ||!message) {
+    if (!clientId ||!message?.trim()) {
       return socket.emit("error", { message: "Client ID or message missing" });
     }
-    const clientSocketId = clientsMap[clientId]?.socketId;
-    if (clientSocketId) {
+    const client = clientsMap.get(clientId);
+    if (client?.socketId) {
       try {
         const savedMessage = await saveMessage("admin", clientId.toString(), message);
-        io.to(clientSocketId).emit("new_message", {
+        io.to(client.socketId).emit("new_message", {
           sender: "admin",
           senderId: "admin",
           message: savedMessage.message,
@@ -245,94 +243,82 @@ io.on("connection", (socket) => {
         socket.emit("error", { message: "Error sending message" });
       }
     } else {
-      console.error(`Client not found or disconnected: ${clientId}`);
       socket.emit("error", { message: "Client not found or disconnected" });
     }
   });
 
+  // WebRTC events - inchangés mais avec getTargetSocketId sécurisé
   socket.on("call_offer", (data) => {
-    const { to, callType, offer } = data;
-    const targetSocketId = getTargetSocketId(to);
-    console.log(`call_offer received from ${user.id} to ${to}`);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_offer", {
         from: user.id.toString(),
-        callType,
-        offer,
+        callType: data.callType,
+        offer: data.offer,
       });
-      socket.emit("call_status", { status: "offer_sent", to });
+      socket.emit("call_status", { status: "offer_sent", to: data.to });
     } else {
-      console.error(`Target not found for call_offer: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
   socket.on("call_answer", (data) => {
-    const { to, answer } = data;
-    const targetSocketId = getTargetSocketId(to);
-    console.log(`call_answer received from ${user.id} to ${to}`);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_answer", {
         from: user.id.toString(),
-        answer,
+        answer: data.answer,
       });
-      socket.emit("call_status", { status: "answer_sent", to });
+      socket.emit("call_status", { status: "answer_sent", to: data.to });
     } else {
-      console.error(`Target not found for call_answer: ${to}`);
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
   socket.on("call_candidate", (data) => {
-    const { to, candidate } = data;
-    const targetSocketId = getTargetSocketId(to);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_candidate", {
         from: user.id.toString(),
-        candidate,
+        candidate: data.candidate,
       });
     }
   });
 
   socket.on("call_reject", (data) => {
-    const { to } = data;
-    const targetSocketId = getTargetSocketId(to);
-    console.log(`call_reject received from ${user.id} to ${to}`);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_reject", { from: user.id.toString() });
-      socket.emit("call_status", { status: "reject_sent", to });
+      socket.emit("call_status", { status: "reject_sent", to: data.to });
     } else {
       socket.emit("error", { message: "Call recipient not available" });
     }
   });
 
   socket.on("call_busy", (data) => {
-    const { to } = data;
-    const targetSocketId = getTargetSocketId(to);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_busy", { from: user.id.toString() });
     }
   });
 
   socket.on("call_end", (data) => {
-    const { to } = data;
-    const targetSocketId = getTargetSocketId(to);
-    console.log(`call_end received from ${user.id} to ${to}`);
+    const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
       io.to(targetSocketId).emit("call_end", { from: user.id.toString() });
-      socket.emit("call_status", { status: "end_sent", to });
+      socket.emit("call_status", { status: "end_sent", to: data.to });
     }
     socket.emit("call_end", { from: user.id.toString() });
   });
 
   socket.on("disconnect", () => {
-    console.log(`${user.role} disconnected: ${user.username || user.name || user.id} (socket: ${socket.id})`);
+    console.log(`${user.role} disconnected: ${user.username || user.name || user.id}`);
     if (user.role === "client") {
-      delete clientsMap[user.id];
+      clientsMap.delete(user.id);
       if (adminSocket) {
-        adminSocket.emit("update_client_list", Object.values(clientsMap));
+        adminSocket.emit("update_client_list", Array.from(clientsMap.values()));
       }
-    } else if (user.role === "admin") {
+    } else if (user.role === "admin" && adminSocket?.id === socket.id) {
       adminSocket = null;
       isAdminOnline = false;
       io.emit("admin_status", { online: false });
@@ -341,18 +327,11 @@ io.on("connection", (socket) => {
 });
 
 async function saveMessage(sender, recipient, message) {
-  try {
-    const result = await pool.query(
-      "INSERT INTO messages (sender, recipient, message, timestamp, is_read) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, false) RETURNING *",
-      [sender, recipient, message]
-    );
-    const savedMessage = result.rows[0];
-    console.log("Message saved to database:", savedMessage);
-    return savedMessage;
-  } catch (err) {
-    console.error("Error saving message:", err.message);
-    throw err;
-  }
+  const result = await pool.query(
+    "INSERT INTO messages (sender, recipient, message, timestamp, is_read) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, false) RETURNING *",
+    [sender, recipient, message]
+  );
+  return result.rows[0];
 }
 
 const PORT = process.env.PORT || 5000;
