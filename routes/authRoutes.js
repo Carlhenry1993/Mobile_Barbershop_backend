@@ -7,6 +7,8 @@ const pool = require('../db/pool');
 router.post('/register', async (req, res) => {
   const { username, email, password, firstName, lastName, phone, smsOptIn } = req.body;
 
+  console.log('Register attempt:', { username, email, firstName, lastName });
+
   if (!username ||!email ||!password ||!firstName ||!lastName) {
     return res.status(400).json({ error: "Champs obligatoires manquants" });
   }
@@ -34,22 +36,33 @@ router.post('/register', async (req, res) => {
     const result = await pool.query(
       `INSERT INTO users (username, email, password, first_name, last_name, phone, sms_opt_in, role, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'client', NOW())
-       RETURNING id, username, email, first_name, last_name`,
+       RETURNING id, username, email, first_name, last_name, role`,
       [username, email, hashedPassword, firstName, lastName, phone || null, smsOptIn!== false]
     );
 
     const user = result.rows[0];
     const token = jwt.sign(
-      { id: user.id, username: user.username, role: 'client' },
+      { id: user.id, username: user.username, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
-    res.json({ token, user });
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        firstName: user.first_name,
+        lastName: user.last_name,
+        role: user.role
+      }
+    });
 
   } catch (err) {
-    console.error('Register error:', err.message);
-    res.status(500).json({ error: "Erreur serveur" });
+    console.error('Register ERROR:', err.message);
+    console.error('Register STACK:', err.stack);
+    res.status(500).json({ error: "Erreur serveur lors de l'inscription" });
   }
 });
 
@@ -94,7 +107,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Login error:', err.message);
+    console.error('Login ERROR:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
