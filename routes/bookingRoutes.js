@@ -6,16 +6,15 @@ const nodemailer = require('nodemailer');
 
 // ─── EMAIL CONFIG ───────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: 465,
-  secure: true, // true pour 465, false pour 587
+  secure: true,
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   }
 });
 
-// Test SMTP au démarrage
 transporter.verify((error, success) => {
   if (error) {
     console.error('SMTP ERROR:', error.message);
@@ -24,7 +23,6 @@ transporter.verify((error, success) => {
   }
 });
 
-// EMAIL NON BLOQUANT + LOGS DEBUG
 const sendBookingEmail = (to, subject, html) => {
   if (!to) {
     console.log('Email skip: no recipient');
@@ -32,8 +30,6 @@ const sendBookingEmail = (to, subject, html) => {
   }
 
   console.log('Sending email to:', to);
-  console.log('SMTP_USER:', process.env.SMTP_USER? 'SET' : 'MISSING');
-  console.log('SMTP_PASS:', process.env.SMTP_PASS? 'SET' : 'MISSING');
 
   transporter.sendMail({
     from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
@@ -45,7 +41,6 @@ const sendBookingEmail = (to, subject, html) => {
   }).catch(err => {
     console.error('EMAIL FAILED:', err.message);
     console.error('Code:', err.code);
-    console.error('Response:', err.response);
   });
 };
 
@@ -230,7 +225,6 @@ router.post('/create', authenticate, async (req, res) => {
     const dateStr = start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Toronto' });
     const timeStr = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
 
-    // EMAILS NON BLOQUANTS
     sendBookingEmail(
       clientEmail,
       'Confirmation de réservation - Mr. Renaudin',
