@@ -2,6 +2,31 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const jwt = require('jsonwebtoken');
+const nodemailer = require('nodemailer');
+
+// ─── EMAIL CONFIG ───────────────────────────────────────────────
+const transporter = nodemailer.createTransporter({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER, // mrrenaudinbarber@gmail.com
+    pass: process.env.SMTP_PASS // mot de passe d'app Gmail
+  }
+});
+
+const sendBookingEmail = async (to, subject, html) => {
+  try {
+    await transporter.sendMail({
+      from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
+      to,
+      subject,
+      html
+    });
+  } catch (err) {
+    console.error('Email error:', err.message);
+  }
+};
 
 // ─── Middlewares ────────────────────────────────────────────────
 const authenticate = (req, res, next) => {
@@ -34,7 +59,6 @@ const authenticateAdmin = (req, res, next) => {
 
 // ─── CLIENT ROUTES ──────────────────────────────────────────────
 
-// GET services disponibles
 router.get('/services', async (req, res) => {
   try {
     const result = await pool.query(
@@ -47,7 +71,6 @@ router.get('/services', async (req, res) => {
   }
 });
 
-// GET barbiers disponibles
 router.get('/barbers', async (req, res) => {
   try {
     const result = await pool.query(
@@ -64,7 +87,6 @@ router.get('/barbers', async (req, res) => {
   }
 });
 
-// GET créneaux disponibles pour une date + barbier + service
 router.get('/availability', async (req, res) => {
   const { date, barberId, serviceId } = req.query;
   if (!date ||!barberId ||!serviceId) {
@@ -72,33 +94,28 @@ router.get('/availability', async (req, res) => {
   }
 
   try {
-    // 1. Récup durée du service
     const serviceRes = await pool.query('SELECT duration FROM services WHERE id = $1 AND active = true', [serviceId]);
     if (!serviceRes.rows.length) return res.status(404).json({ error: "Service introuvable" });
     const duration = serviceRes.rows[0].duration;
 
-    // 2. Récup horaires du barbier pour ce jour
-    const dayOfWeek = new Date(date + 'T12:00:00Z').getUTCDay(); // 0=dimanche
+    const dayOfWeek = new Date(date + 'T12:00:00Z').getUTCDay();
     const scheduleRes = await pool.query(
       'SELECT start_time, end_time FROM barber_schedules WHERE barber_id = $1 AND day_of_week = $2',
       [barberId, dayOfWeek]
     );
-    if (!scheduleRes.rows.length) return res.json([]); // Pas dispo ce jour
+    if (!scheduleRes.rows.length) return res.json([]);
 
     const { start_time, end_time } = scheduleRes.rows[0];
 
-    // 3. Récup résas existantes + blocages
     const bookingsRes = await pool.query(
       `SELECT start_time, end_time FROM bookings
-       WHERE barber_id = $1 AND DATE(start_time) = $2
-       AND status!= 'cancelled'
+       WHERE barber_id = $1 AND DATE(start_time) = $2 AND status!= 'cancelled'
        UNION ALL
        SELECT start_time, end_time FROM barber_blocks
        WHERE barber_id = $1 AND DATE(start_time) = $2`,
       [barberId, date]
     );
 
-    // 4. Génère les slots de 15min et filtre ceux qui overlap
     const slots = [];
     const workStart = new Date(`${date}T${start_time}Z`);
     const workEnd = new Date(`${date}T${end_time}Z`);
@@ -126,7 +143,7 @@ router.get('/availability', async (req, res) => {
   }
 });
 
-// POST créer une réservation
+// POST créer une réservation + ENVOI EMAILS
 router.post('/create', authenticate, async (req, res) => {
   const { serviceId, barberId, startTime } = req.body;
   const clientId = req.user.id;
@@ -139,12 +156,12 @@ router.post('/create', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const serviceRes = await client.query('SELECT duration FROM services WHERE id = $1 AND active = true FOR UPDATE', [serviceId]);
+    const serviceRes = await client.query('SELECT name, duration, price FROM services WHERE id = $1 AND active = true', [serviceId]);
     if (!serviceRes.rows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: "Service introuvable" });
     }
-    const duration = serviceRes.rows[0].duration;
+    const { name: serviceName, duration, price } = serviceRes.rows[0];
     const start = new Date(startTime);
     const endTime = new Date(start.getTime() + duration * 60000);
 
@@ -153,7 +170,6 @@ router.post('/create', authenticate, async (req, res) => {
       return res.status(400).json({ error: "Impossible de réserver dans le passé" });
     }
 
-    // FIX: Pas de FOR UPDATE sur UNION - on check overlap direct
     const conflict = await client.query(
       `SELECT id FROM bookings
        WHERE barber_id = $1 AND status!= 'cancelled'
@@ -169,6 +185,12 @@ router.post('/create', authenticate, async (req, res) => {
       return res.status(409).json({ error: "Ce créneau vient d'être réservé" });
     }
 
+    // Récup infos client + barbier pour emails
+    const [clientRes, barberRes] = await Promise.all([
+      client.query('SELECT username, email FROM users WHERE id = $1', [clientId]),
+      client.query('SELECT username, email FROM users WHERE id = $1', [barberId])
+    ]);
+
     const result = await client.query(
       `INSERT INTO bookings (client_id, barber_id, service_id, start_time, end_time, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'confirmed', NOW()) RETURNING *`,
@@ -176,7 +198,50 @@ router.post('/create', authenticate, async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.json(result.rows[0]);
+
+    const booking = result.rows[0];
+    const clientEmail = clientRes.rows[0].email;
+    const clientName = clientRes.rows[0].username;
+    const barberEmail = barberRes.rows[0].email;
+    const barberName = barberRes.rows[0].username;
+
+    const dateStr = start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    const timeStr = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+
+    // Email client
+    if (clientEmail) {
+      await sendBookingEmail(
+        clientEmail,
+        'Confirmation de réservation - Mr. Renaudin',
+        `<h2>Réservation confirmée</h2>
+         <p>Bonjour ${clientName},</p>
+         <p>Votre RDV est confirmé :</p>
+         <ul>
+           <li><b>Service :</b> ${serviceName}</li>
+           <li><b>Barbier :</b> ${barberName}</li>
+           <li><b>Date :</b> ${dateStr} à ${timeStr}</li>
+           <li><b>Durée :</b> ${duration} min</li>
+           <li><b>Prix :</b> ${price}$</li>
+           <li><b>Adresse :</b> 462 4e Rue de la Pointe, Shawinigan, QC G9N 1G7</li>
+         </ul>
+         <p>Annulation gratuite jusqu'à 24h avant. <a href="https://mrrenaudinbarbershop.com/compte">Gérer ma réservation</a></p>`
+      );
+    }
+
+    // Email barbier
+    if (barberEmail) {
+      await sendBookingEmail(
+        barberEmail,
+        `Nouvelle réservation - ${clientName}`,
+        `<h2>Nouvelle réservation</h2>
+         <p><b>Client :</b> ${clientName} (${clientEmail})</p>
+         <p><b>Service :</b> ${serviceName}</p>
+         <p><b>Date :</b> ${dateStr} à ${timeStr}</p>
+         <p><b>Durée :</b> ${duration} min</p>`
+      );
+    }
+
+    res.json(booking);
 
   } catch (err) {
     await client.query('ROLLBACK');
@@ -193,7 +258,7 @@ router.get('/my-bookings', authenticate, async (req, res) => {
     const result = await pool.query(
       `SELECT b.id, b.start_time, b.end_time, b.status,
               s.name as service_name, s.price, s.duration,
-              u.username as barber_name
+              u.username as barber_name, u.id as barber_id
        FROM bookings b
        JOIN services s ON b.service_id = s.id
        JOIN users u ON b.barber_id = u.id
@@ -208,12 +273,75 @@ router.get('/my-bookings', authenticate, async (req, res) => {
   }
 });
 
-// DELETE annuler ma résa
+// PATCH modifier ma résa - CLIENT
+router.patch('/:id', authenticate, async (req, res) => {
+  const { startTime } = req.body;
+  const bookingId = req.params.id;
+
+  if (!startTime) return res.status(400).json({ error: "startTime requis" });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Vérifie que la résa appartient au client + pas passée + >24h
+    const bookingRes = await client.query(
+      `SELECT b.*, s.duration FROM bookings b
+       JOIN services s ON b.service_id = s.id
+       WHERE b.id = $1 AND b.client_id = $2 AND b.status = 'confirmed'
+       AND b.start_time > NOW() + INTERVAL '24 hours'`,
+      [bookingId, req.user.id]
+    );
+
+    if (!bookingRes.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: "Impossible de modifier. Moins de 24h ou résa introuvable" });
+    }
+
+    const oldBooking = bookingRes.rows[0];
+    const newStart = new Date(startTime);
+    const newEnd = new Date(newStart.getTime() + oldBooking.duration * 60000);
+
+    // 2. Check conflit
+    const conflict = await client.query(
+      `SELECT id FROM bookings
+       WHERE barber_id = $1 AND status!= 'cancelled' AND id!= $2
+       AND ($3, $4) OVERLAPS (start_time, end_time)
+       UNION ALL
+       SELECT id FROM barber_blocks
+       WHERE barber_id = $1 AND ($3, $4) OVERLAPS (start_time, end_time)`,
+      [oldBooking.barber_id, bookingId, newStart, newEnd]
+    );
+
+    if (conflict.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: "Nouveau créneau indisponible" });
+    }
+
+    // 3. Update
+    await client.query(
+      `UPDATE bookings SET start_time = $1, end_time = $2 WHERE id = $3`,
+      [newStart, newEnd, bookingId]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true });
+
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error updating booking:', err.message);
+    res.status(500).json({ error: "Erreur serveur" });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE annuler ma résa - CLIENT
 router.delete('/:id', authenticate, async (req, res) => {
   try {
     const result = await pool.query(
       `UPDATE bookings SET status = 'cancelled'
-       WHERE id = $1 AND client_id = $2 AND start_time > NOW() + INTERVAL '24 hours'
+       WHERE id = $1 AND client_id = $2 AND start_time > NOW() + INTERVAL '24 hours' AND status = 'confirmed'
        RETURNING *`,
       [req.params.id, req.user.id]
     );
@@ -229,7 +357,6 @@ router.delete('/:id', authenticate, async (req, res) => {
 
 // ─── ADMIN ROUTES ───────────────────────────────────────────────
 
-// GET toutes les résas - ADMIN ONLY
 router.get('/admin/all', authenticateAdmin, async (req, res) => {
   try {
     const result = await pool.query(
@@ -252,13 +379,9 @@ router.get('/admin/all', authenticateAdmin, async (req, res) => {
   }
 });
 
-// PATCH annuler - ADMIN
 router.patch('/admin/:id/cancel', authenticateAdmin, async (req, res) => {
   try {
-    await pool.query(
-      `UPDATE bookings SET status = 'cancelled' WHERE id = $1`,
-      [req.params.id]
-    );
+    await pool.query(`UPDATE bookings SET status = 'cancelled' WHERE id = $1`, [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     console.error('Error cancelling booking:', err.message);
@@ -266,13 +389,9 @@ router.patch('/admin/:id/cancel', authenticateAdmin, async (req, res) => {
   }
 });
 
-// PATCH compléter - ADMIN
 router.patch('/admin/:id/complete', authenticateAdmin, async (req, res) => {
   try {
-    await pool.query(
-      `UPDATE bookings SET status = 'completed' WHERE id = $1`,
-      [req.params.id]
-    );
+    await pool.query(`UPDATE bookings SET status = 'completed' WHERE id = $1`, [req.params.id]);
     res.json({ success: true });
   } catch (err) {
     console.error('Error completing booking:', err.message);
@@ -280,7 +399,6 @@ router.patch('/admin/:id/complete', authenticateAdmin, async (req, res) => {
   }
 });
 
-// PATCH modifier - ADMIN
 router.patch('/admin/:id', authenticateAdmin, async (req, res) => {
   const { service_id, barber_id, start_time } = req.body;
   try {
