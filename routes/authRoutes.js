@@ -5,7 +5,6 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const pool = require('../db/pool');
 
-// ─── EMAIL CONFIG ───────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: 587,
@@ -13,55 +12,38 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
-  }
+  },
+  connectionTimeout: 5000, // 5s max
+  greetingTimeout: 5000,
+  socketTimeout: 10000
 });
 
-const sendWelcomeEmail = async (to, firstName, username) => {
-  try {
-    await transporter.sendMail({
-      from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
-      to,
-      subject: 'Bienvenue chez Mr. Renaudin Barbershop',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #d4a843;">Bienvenue ${firstName}!</h2>
-          <p>Votre compte a été créé avec succès.</p>
-
-          <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #d4a843;">
-            <p style="margin: 5px 0;"><b>Nom d'utilisateur :</b> ${username}</p>
-            <p style="margin: 5px 0;"><b>Email :</b> ${to}</p>
-          </div>
-
-          <p>Vous pouvez maintenant :</p>
-          <ul>
-            <li>Réserver vos rendez-vous en ligne 24/7</li>
-            <li>Modifier ou annuler jusqu'à 24h avant</li>
-            <li>Recevoir des rappels automatiques</li>
-          </ul>
-
-          <a href="https://mrrenaudinbarbershop.com/reserver"
-             style="display: inline-block; background: #d4a843; color: #000; padding: 12px 24px; text-decoration: none; font-weight: bold; margin: 20px 0;">
-            Réserver mon premier RDV
-          </a>
-
-          <p style="color: #666; font-size: 12px; margin-top: 30px;">
-            Mr. Renaudin Barbershop<br>
-            462 4e Rue de la Pointe, Shawinigan, QC G9N 1G7<br>
-            514-778-8318
-          </p>
+const sendWelcomeEmail = (to, firstName, username) => {
+  // PAS DE AWAIT - fire and forget
+  transporter.sendMail({
+    from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
+    to,
+    subject: 'Bienvenue chez Mr. Renaudin Barbershop',
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #d4a843;">Bienvenue ${firstName}!</h2>
+        <p>Votre compte a été créé avec succès.</p>
+        <div style="background: #f5f5f5; padding: 15px; margin: 20px 0; border-left: 4px solid #d4a843;">
+          <p style="margin: 5px 0;"><b>Nom d'utilisateur :</b> ${username}</p>
+          <p style="margin: 5px 0;"><b>Email :</b> ${to}</p>
         </div>
-      `
-    });
-    console.log('Welcome email sent to:', to);
-  } catch (err) {
-    console.error('Email error:', err.message);
-  }
+        <a href="https://mrrenaudinbarbershop.com/reserver"
+           style="display: inline-block; background: #d4a843; color: #000; padding: 12px 24px; text-decoration: none; font-weight: bold; margin: 20px 0;">
+          Réserver mon premier RDV
+        </a>
+      </div>
+    `
+  }).then(() => console.log('Welcome email sent to:', to))
+   .catch(err => console.error('Email error:', err.message));
 };
 
 router.post('/register', async (req, res) => {
   const { username, email, password, firstName, lastName, phone, smsOptIn } = req.body;
-
-  console.log('Register attempt:', { username, email, firstName, lastName });
 
   if (!username ||!email ||!password ||!firstName ||!lastName) {
     return res.status(400).json({ error: "Champs obligatoires manquants" });
@@ -101,9 +83,10 @@ router.post('/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // ENVOI EMAIL DE CONFIRMATION SUR L'EMAIL DU COMPTE
-    await sendWelcomeEmail(user.email, user.first_name, user.username);
+    // EMAIL EN BACKGROUND - NE BLOQUE PAS LA REPONSE
+    sendWelcomeEmail(user.email, user.first_name, user.username);
 
+    // REPONSE IMMEDIATE
     res.json({
       token,
       user: {
@@ -118,7 +101,6 @@ router.post('/register', async (req, res) => {
 
   } catch (err) {
     console.error('Register ERROR:', err.message);
-    console.error('Register STACK:', err.stack);
     res.status(500).json({ error: "Erreur serveur lors de l'inscription" });
   }
 });
