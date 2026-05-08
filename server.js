@@ -13,6 +13,9 @@ if (!process.env.JWT_SECRET) {
 
 const app = express();
 
+// Render est derrière un proxy
+app.set('trust proxy', 1);
+
 // 1. CORS centralisé - une seule source de vérité
 const allowedOrigins = [
   "http://localhost:3000",
@@ -24,11 +27,14 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, cb) => {
+    // Autorise requêtes sans origin comme Postman/mobile
     if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+    console.log('CORS blocked:', origin);
     cb(new Error("Not allowed by CORS"));
   },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
 };
 
 app.use(cors(corsOptions));
@@ -79,7 +85,7 @@ app.get("/api/messages", authenticate, async (req, res) => {
     const user = req.user;
     const query =
       user.role === "admin"
-      ? "SELECT id, sender, recipient, message, timestamp, is_read FROM messages ORDER BY timestamp ASC"
+       ? "SELECT id, sender, recipient, message, timestamp, is_read FROM messages ORDER BY timestamp ASC"
         : "SELECT id, sender, recipient, message, timestamp, is_read FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
 
     const params = user.role === "admin"? [] : [user.id.toString()];
@@ -131,7 +137,11 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: allowedOrigins, methods: ["GET", "POST"] },
+  cors: { 
+    origin: allowedOrigins, 
+    methods: ["GET", "POST"],
+    credentials: true 
+  },
 });
 
 // 5. Gestion propre des clients + admin
