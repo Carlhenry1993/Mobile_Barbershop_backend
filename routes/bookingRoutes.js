@@ -13,15 +13,18 @@ console.log('PASS length:', process.env.SMTP_PASS?.length);
 
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
-  port: parseInt(process.env.SMTP_PORT) || 587,
-  secure: false,
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.SMTP_USER || 'apikey',
     pass: process.env.SMTP_PASS
   },
-  connectionTimeout: 10000, // 10s timeout au lieu d'infini
+  connectionTimeout: 10000,
   greetingTimeout: 10000,
-  socketTimeout: 10000
+  socketTimeout: 10000,
+  tls: {
+    rejectUnauthorized: false
+  }
 });
 
 transporter.verify((error, success) => {
