@@ -4,13 +4,13 @@ const pool = require('../db/pool');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 
-// ─── EMAIL CONFIG ───────────────────────────────────────────────
+// ─── EMAIL CONFIG SENDGRID ───────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: 587,
+  host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
+  port: parseInt(process.env.SMTP_PORT) || 587,
   secure: false,
   auth: {
-    user: process.env.SMTP_USER,
+    user: process.env.SMTP_USER || 'apikey',
     pass: process.env.SMTP_PASS
   }
 });
@@ -32,7 +32,7 @@ const sendBookingEmail = (to, subject, html) => {
   console.log('Sending email to:', to);
 
   transporter.sendMail({
-    from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
+    from: `"Mr. Renaudin Barbershop" <mrrenaudinbarber@gmail.com>`,
     to,
     subject,
     html
