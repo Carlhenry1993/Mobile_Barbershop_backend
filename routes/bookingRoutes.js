@@ -2,39 +2,13 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// ─── EMAIL CONFIG SENDGRID ───────────────────────────────────────────────
-console.log('--- SMTP INIT ---');
-console.log('HOST:', process.env.SMTP_HOST);
-console.log('USER:', process.env.SMTP_USER);
-console.log('PASS set:',!!process.env.SMTP_PASS);
-console.log('PASS length:', process.env.SMTP_PASS?.length);
+// ─── EMAIL CONFIG SENDGRID API ───────────────────────────────────────────────
+console.log('--- SENDGRID API INIT ---');
+console.log('API KEY set:',!!process.env.SMTP_PASS);
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
-  port: 465,
-  secure: true,
-  auth: {
-    user: process.env.SMTP_USER || 'apikey',
-    pass: process.env.SMTP_PASS
-  },
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 10000,
-  tls: {
-    rejectUnauthorized: false
-  }
-});
-
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('SMTP ERROR:', error.message);
-    console.error('SMTP CODE:', error.code);
-  } else {
-    console.log('SMTP Server ready');
-  }
-});
+sgMail.setApiKey(process.env.SMTP_PASS); // Ta clé SG.xxx
 
 const sendBookingEmail = (to, subject, html) => {
   if (!to) {
@@ -44,18 +18,23 @@ const sendBookingEmail = (to, subject, html) => {
 
   console.log('Sending email to:', to);
 
-  transporter.sendMail({
-    from: `"Mr. Renaudin Barbershop" <mrrenaudinbarber@gmail.com>`,
+  const msg = {
     to,
+    from: 'mrrenaudinbarber@gmail.com', // Doit être vérifié dans SendGrid
     subject,
-    html
-  }).then(info => {
-    console.log('Email sent:', info.messageId, 'to:', to);
-  }).catch(err => {
-    console.error('EMAIL FAILED:', err.message);
-    console.error('Code:', err.code);
-    console.error('Response:', err.response);
-  });
+    html,
+  };
+
+  sgMail.send(msg)
+   .then(() => {
+      console.log('Email sent to:', to);
+    })
+   .catch((err) => {
+      console.error('EMAIL FAILED:', err.message);
+      if (err.response) {
+        console.error('SendGrid errors:', err.response.body.errors);
+      }
+    });
 };
 
 // ─── Middlewares ────────────────────────────────────────────────
