@@ -38,11 +38,11 @@ const authenticateAdmin = (req, res, next) => {
 router.get('/services', async (req, res) => {
   try {
     const result = await pool.query(
-      'SELECT id, name, duration, price, description FROM services WHERE active = true ORDER BY name'
+      'SELECT id, name, duration, price, description FROM services WHERE active = true ORDER BY price'
     );
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching services:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -59,7 +59,7 @@ router.get('/barbers', async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching barbers:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -78,7 +78,7 @@ router.get('/availability', async (req, res) => {
     const duration = serviceRes.rows[0].duration;
 
     // 2. Récup horaires du barbier pour ce jour
-    const dayOfWeek = new Date(date + 'T00:00:00').getDay(); // 0=dimanche
+    const dayOfWeek = new Date(date + 'T12:00:00Z').getUTCDay(); // 0=dimanche
     const scheduleRes = await pool.query(
       'SELECT start_time, end_time FROM barber_schedules WHERE barber_id = $1 AND day_of_week = $2',
       [barberId, dayOfWeek]
@@ -90,23 +90,23 @@ router.get('/availability', async (req, res) => {
     // 3. Récup résas existantes + blocages
     const bookingsRes = await pool.query(
       `SELECT start_time, end_time FROM bookings
-       WHERE barber_id = $1 AND DATE(start_time AT TIME ZONE 'America/Toronto') = $2
+       WHERE barber_id = $1 AND DATE(start_time) = $2
        AND status!= 'cancelled'
        UNION ALL
        SELECT start_time, end_time FROM barber_blocks
-       WHERE barber_id = $1 AND DATE(start_time AT TIME ZONE 'America/Toronto') = $2`,
+       WHERE barber_id = $1 AND DATE(start_time) = $2`,
       [barberId, date]
     );
 
-    // 4. Génère les slots de 30min et filtre ceux qui overlap
+    // 4. Génère les slots de 15min et filtre ceux qui overlap
     const slots = [];
-    const start = new Date(`${date}T${start_time}`);
-    const end = new Date(`${date}T${end_time}`);
+    const workStart = new Date(`${date}T${start_time}Z`);
+    const workEnd = new Date(`${date}T${end_time}Z`);
     const now = new Date();
 
-    for (let slot = new Date(start); slot < end; slot.setMinutes(slot.getMinutes() + 30)) {
+    for (let slot = new Date(workStart); slot < workEnd; slot.setMinutes(slot.getMinutes() + 15)) {
       const slotEnd = new Date(slot.getTime() + duration * 60000);
-      if (slotEnd > end) break;
+      if (slotEnd > workEnd) break;
 
       const isBooked = bookingsRes.rows.some(b => {
         const bStart = new Date(b.start_time);
@@ -114,14 +114,14 @@ router.get('/availability', async (req, res) => {
         return (slot < bEnd && slotEnd > bStart);
       });
 
-      if (!isBooked && slot > now) { // pas dans le passé
+      if (!isBooked && slot > now) {
         slots.push(slot.toISOString());
       }
     }
 
     res.json(slots);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching availability:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -139,7 +139,6 @@ router.post('/create', authenticate, async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // 1. Vérifie que le slot est toujours libre - lock
     const serviceRes = await client.query('SELECT duration FROM services WHERE id = $1 AND active = true FOR UPDATE', [serviceId]);
     if (!serviceRes.rows.length) {
       await client.query('ROLLBACK');
@@ -154,14 +153,15 @@ router.post('/create', authenticate, async (req, res) => {
       return res.status(400).json({ error: "Impossible de réserver dans le passé" });
     }
 
+    // FIX: Pas de FOR UPDATE sur UNION - on check overlap direct
     const conflict = await client.query(
       `SELECT id FROM bookings
        WHERE barber_id = $1 AND status!= 'cancelled'
-       AND ($2 < end_time AND $3 > start_time) FOR UPDATE
+       AND ($2, $3) OVERLAPS (start_time, end_time)
        UNION ALL
        SELECT id FROM barber_blocks
-       WHERE barber_id = $1 AND ($2 < end_time AND $3 > start_time) FOR UPDATE`,
-      [barberId, startTime, endTime.toISOString()]
+       WHERE barber_id = $1 AND ($2, $3) OVERLAPS (start_time, end_time)`,
+      [barberId, start, endTime]
     );
 
     if (conflict.rows.length) {
@@ -169,21 +169,19 @@ router.post('/create', authenticate, async (req, res) => {
       return res.status(409).json({ error: "Ce créneau vient d'être réservé" });
     }
 
-    // 2. Insert la résa
     const result = await client.query(
       `INSERT INTO bookings (client_id, barber_id, service_id, start_time, end_time, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'confirmed', NOW()) RETURNING *`,
-      [clientId, barberId, serviceId, startTime, endTime.toISOString()]
+      [clientId, barberId, serviceId, start, endTime]
     );
 
     await client.query('COMMIT');
-
-    // 3. TODO: Envoyer email/SMS ici
     res.json(result.rows[0]);
+
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error(err);
-    res.status(500).json({ error: "Erreur serveur" });
+    console.error('Booking ERROR:', err.message);
+    res.status(500).json({ error: "Erreur serveur lors de la réservation" });
   } finally {
     client.release();
   }
@@ -205,7 +203,7 @@ router.get('/my-bookings', authenticate, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching my bookings:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -224,7 +222,7 @@ router.delete('/:id', authenticate, async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error('Error cancelling booking:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -249,7 +247,7 @@ router.get('/admin/all', authenticateAdmin, async (req, res) => {
     );
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error('Error fetching all bookings:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -263,7 +261,7 @@ router.patch('/admin/:id/cancel', authenticateAdmin, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error('Error cancelling booking:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -277,7 +275,7 @@ router.patch('/admin/:id/complete', authenticateAdmin, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error('Error completing booking:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
@@ -297,7 +295,7 @@ router.patch('/admin/:id', authenticateAdmin, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    console.error(err);
+    console.error('Error updating booking:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });
