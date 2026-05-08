@@ -31,15 +31,15 @@ const corsOptions = {
   allowedHeaders: ["Content-Type", "Authorization"],
 };
 
-app.use(cors(corsOptions)); // Gère aussi les OPTIONS automatiquement
-app.use(express.json({ limit: "1mb" })); // 2. Limite payload
+app.use(cors(corsOptions));
+app.use(express.json({ limit: "1mb" }));
 
 // 3. Static avec même CORS que l'API
 app.use(
   "/sounds",
   express.static("sounds", {
     setHeaders: (res, path) => {
-      res.set("Access-Control-Allow-Origin", "*"); // OK car pas de credentials sur fichiers
+      res.set("Access-Control-Allow-Origin", "*");
       res.set("Cache-Control", "public, max-age=31536000");
     },
   })
@@ -79,7 +79,7 @@ app.get("/api/messages", authenticate, async (req, res) => {
     const user = req.user;
     const query =
       user.role === "admin"
-       ? "SELECT id, sender, recipient, message, timestamp, is_read FROM messages ORDER BY timestamp ASC"
+      ? "SELECT id, sender, recipient, message, timestamp, is_read FROM messages ORDER BY timestamp ASC"
         : "SELECT id, sender, recipient, message, timestamp, is_read FROM messages WHERE sender = $1 OR recipient = $1 ORDER BY timestamp ASC";
 
     const params = user.role === "admin"? [] : [user.id.toString()];
@@ -135,7 +135,7 @@ const io = new Server(server, {
 });
 
 // 5. Gestion propre des clients + admin
-const clientsMap = new Map(); // userId -> {name, socketId, online}
+const clientsMap = new Map();
 let adminSocket = null;
 let isAdminOnline = false;
 
@@ -173,7 +173,6 @@ io.on("connection", (socket) => {
     socket.emit("update_client_list", Array.from(clientsMap.values()));
     io.emit("admin_status", { online: true });
 
-    // 6. Sécurité : valider role côté socket aussi
     socket.on("send_announcement", async ({ title, content }) => {
       if (socket.user.role!== "admin") return;
       if (!title ||!content) {
@@ -182,7 +181,7 @@ io.on("connection", (socket) => {
       try {
         const result = await pool.query(
           "INSERT INTO announcements (title, content, created_at) VALUES ($1, $2, NOW()) RETURNING *",
-          [title][content]
+          [title, content]
         );
         io.emit("new_announcement", result.rows[0]);
       } catch (err) {
@@ -247,7 +246,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // WebRTC events - inchangés mais avec getTargetSocketId sécurisé
   socket.on("call_offer", (data) => {
     const targetSocketId = getTargetSocketId(data.to);
     if (targetSocketId) {
