@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const pool = require('../db/pool');
 
@@ -67,7 +67,7 @@ router.post('/register', async (req, res) => {
 });
 
 router.post('/login', async (req, res) => {
-  const { login, password } = req.body; // login = username OU email
+  const { login, password } = req.body;
 
   if (!login ||!password) {
     return res.status(400).json({ error: "Champs manquants" });
