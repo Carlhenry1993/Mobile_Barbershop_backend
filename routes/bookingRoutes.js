@@ -6,28 +6,48 @@ const nodemailer = require('nodemailer');
 
 // ─── EMAIL CONFIG ───────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: 587,
-  secure: false,
+  service: 'gmail',
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
   },
-  connectionTimeout: 5000,
-  greetingTimeout: 5000,
-  socketTimeout: 10000
+  tls: {
+    rejectUnauthorized: false
+  }
 });
 
-// EMAIL NON BLOQUANT - fire and forget
+// Test SMTP au démarrage
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('SMTP ERROR:', error.message);
+  } else {
+    console.log('SMTP Server ready');
+  }
+});
+
+// EMAIL NON BLOQUANT + LOGS DEBUG
 const sendBookingEmail = (to, subject, html) => {
-  if (!to) return;
+  if (!to) {
+    console.log('Email skip: no recipient');
+    return;
+  }
+
+  console.log('Sending email to:', to);
+  console.log('SMTP_USER:', process.env.SMTP_USER? 'SET' : 'MISSING');
+  console.log('SMTP_PASS:', process.env.SMTP_PASS? 'SET' : 'MISSING');
+
   transporter.sendMail({
     from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html
-  }).then(() => console.log('Email sent to:', to))
-  .catch(err => console.error('Email error:', err.message));
+  }).then(info => {
+    console.log('Email sent:', info.messageId, 'to:', to);
+  }).catch(err => {
+    console.error('EMAIL FAILED:', err.message);
+    console.error('Code:', err.code);
+    console.error('Response:', err.response);
+  });
 };
 
 // ─── Middlewares ────────────────────────────────────────────────
@@ -200,10 +220,13 @@ router.post('/create', authenticate, async (req, res) => {
     await client.query('COMMIT');
 
     const booking = result.rows[0];
-    const clientEmail = clientRes.rows[0].email;
-    const clientName = clientRes.rows[0].username;
-    const barberEmail = barberRes.rows[0].email;
-    const barberName = barberRes.rows[0].username;
+    const clientEmail = clientRes.rows[0]?.email;
+    const clientName = clientRes.rows[0]?.username;
+    const barberEmail = barberRes.rows[0]?.email;
+    const barberName = barberRes.rows[0]?.username;
+
+    console.log('Client email:', clientEmail);
+    console.log('Barber email:', barberEmail);
 
     const dateStr = start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Toronto' });
     const timeStr = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
@@ -236,7 +259,6 @@ router.post('/create', authenticate, async (req, res) => {
        <p><b>Durée :</b> ${duration} min</p>`
     );
 
-    // REPONSE IMMEDIATE
     res.json(booking);
 
   } catch (err) {
