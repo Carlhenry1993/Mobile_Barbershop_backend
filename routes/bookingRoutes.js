@@ -12,22 +12,22 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASS
-  }
+  },
+  connectionTimeout: 5000,
+  greetingTimeout: 5000,
+  socketTimeout: 10000
 });
 
-const sendBookingEmail = async (to, subject, html) => {
+// EMAIL NON BLOQUANT - fire and forget
+const sendBookingEmail = (to, subject, html) => {
   if (!to) return;
-  try {
-    await transporter.sendMail({
-      from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
-      to,
-      subject,
-      html
-    });
-    console.log('Email sent to:', to);
-  } catch (err) {
-    console.error('Email error:', err.message);
-  }
+  transporter.sendMail({
+    from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
+    to,
+    subject,
+    html
+  }).then(() => console.log('Email sent to:', to))
+  .catch(err => console.error('Email error:', err.message));
 };
 
 // ─── Middlewares ────────────────────────────────────────────────
@@ -208,7 +208,8 @@ router.post('/create', authenticate, async (req, res) => {
     const dateStr = start.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'America/Toronto' });
     const timeStr = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' });
 
-    await sendBookingEmail(
+    // EMAILS NON BLOQUANTS
+    sendBookingEmail(
       clientEmail,
       'Confirmation de réservation - Mr. Renaudin',
       `<h2>Réservation confirmée</h2>
@@ -225,7 +226,7 @@ router.post('/create', authenticate, async (req, res) => {
        <p>Annulation gratuite jusqu'à 24h avant. <a href="https://mrrenaudinbarbershop.com/compte">Gérer ma réservation</a></p>`
     );
 
-    await sendBookingEmail(
+    sendBookingEmail(
       barberEmail,
       `Nouvelle réservation - ${clientName}`,
       `<h2>Nouvelle réservation</h2>
@@ -235,6 +236,7 @@ router.post('/create', authenticate, async (req, res) => {
        <p><b>Durée :</b> ${duration} min</p>`
     );
 
+    // REPONSE IMMEDIATE
     res.json(booking);
 
   } catch (err) {
@@ -266,7 +268,6 @@ router.get('/my-bookings', authenticate, async (req, res) => {
   }
 });
 
-// PATCH modifier ma résa - CLIENT
 router.patch('/:id', authenticate, async (req, res) => {
   const { startTime } = req.body;
   const bookingId = req.params.id;
