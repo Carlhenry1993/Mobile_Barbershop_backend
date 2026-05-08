@@ -117,7 +117,7 @@ app.put("/api/messages/markAsRead", authenticate, async (req, res) => {
 
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/send-email", require("./routes/bookingRoutes"));
+app.use("/api/booking", require("./routes/bookingRoutes"));
 app.use("/api/contact", require("./routes/contactRoutes"));
 
 app.use((req, res) => {
