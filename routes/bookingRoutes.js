@@ -5,6 +5,12 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 
 // ─── EMAIL CONFIG SENDGRID ───────────────────────────────────────────────
+console.log('--- SMTP INIT ---');
+console.log('HOST:', process.env.SMTP_HOST);
+console.log('USER:', process.env.SMTP_USER);
+console.log('PASS set:',!!process.env.SMTP_PASS);
+console.log('PASS length:', process.env.SMTP_PASS?.length);
+
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.sendgrid.net',
   port: parseInt(process.env.SMTP_PORT) || 587,
@@ -12,12 +18,16 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.SMTP_USER || 'apikey',
     pass: process.env.SMTP_PASS
-  }
+  },
+  connectionTimeout: 10000, // 10s timeout au lieu d'infini
+  greetingTimeout: 10000,
+  socketTimeout: 10000
 });
 
 transporter.verify((error, success) => {
   if (error) {
     console.error('SMTP ERROR:', error.message);
+    console.error('SMTP CODE:', error.code);
   } else {
     console.log('SMTP Server ready');
   }
@@ -41,6 +51,7 @@ const sendBookingEmail = (to, subject, html) => {
   }).catch(err => {
     console.error('EMAIL FAILED:', err.message);
     console.error('Code:', err.code);
+    console.error('Response:', err.response);
   });
 };
 
