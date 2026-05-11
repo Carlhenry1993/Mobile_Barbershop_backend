@@ -122,25 +122,39 @@ app.get(
   async (req, res) => {
     try {
       const user = req.user;
+      const { clientId } = req.query; // Pour admin qui veut une conversation spécifique
 
       let query = "";
       let params = [];
 
       if (user.role === "admin") {
-        query = `
-          SELECT *
-          FROM messages
-          ORDER BY timestamp ASC
-        `;
+        // Si admin demande un clientId spécifique : on filtre la conversation
+        if (clientId) {
+          query = `
+            SELECT *
+            FROM messages
+            WHERE (sender = $1 AND recipient = 'admin')
+               OR (sender = 'admin' AND recipient = $1)
+            ORDER BY timestamp ASC
+          `;
+          params = [clientId.toString()];
+        } else {
+          // Sinon on renvoie tout pour le dashboard admin
+          query = `
+            SELECT *
+            FROM messages
+            ORDER BY timestamp ASC
+          `;
+        }
       } else {
+        // Client : seulement sa conversation avec admin
         query = `
           SELECT *
           FROM messages
-          WHERE sender = $1
-          OR recipient = $1
+          WHERE (sender = $1 AND recipient = 'admin')
+             OR (sender = 'admin' AND recipient = $1)
           ORDER BY timestamp ASC
         `;
-
         params = [user.id.toString()];
       }
 
@@ -151,11 +165,11 @@ app.get(
 
       const messages = result.rows.map((msg) => ({
         id: msg.id,
-        sender_id: msg.sender,
-        recipient_id: msg.recipient,
+        sender: msg.sender,
+        recipient: msg.recipient,
         message: msg.message,
         timestamp: msg.timestamp,
-        read: msg.is_read,
+        is_read: msg.is_read,
       }));
 
       res.json(messages);
@@ -178,15 +192,30 @@ app.put(
   async (req, res) => {
     try {
       const user = req.user;
+      const { clientId } = req.body; // Pour admin : marquer les msgs d'un client précis
 
-      await pool.query(
-        `
-        UPDATE messages
-        SET is_read = true
-        WHERE recipient = $1
-        `,
-        [user.id.toString()]
-      );
+      let query = "";
+      let params = [];
+
+      if (user.role === "admin" && clientId) {
+        // Admin marque comme lu les messages du clientId
+        query = `
+          UPDATE messages
+          SET is_read = true
+          WHERE sender = $1 AND recipient = 'admin' AND is_read = false
+        `;
+        params = [clientId.toString()];
+      } else {
+        // Client marque comme lu les messages de admin
+        query = `
+          UPDATE messages
+          SET is_read = true
+          WHERE sender = 'admin' AND recipient = $1 AND is_read = false
+        `;
+        params = [user.id.toString()];
+      }
+
+      await pool.query(query, params);
 
       res.json({
         success: true,
@@ -288,7 +317,7 @@ io.use((socket, next) => {
     );
 
     if (
-      !["admin", "client"].includes(
+     !["admin", "client"].includes(
         user.role
       )
     ) {
@@ -455,7 +484,7 @@ io.on("connection", (socket) => {
       callback
     ) => {
       try {
-        if (user.role !== "admin") {
+        if (user.role!== "admin") {
           return;
         }
 
@@ -557,7 +586,7 @@ io.on("connection", (socket) => {
     }) => {
       try {
         if (
-          !Array.isArray(
+         !Array.isArray(
             messageIds
           )
         ) {
@@ -623,7 +652,7 @@ io.on("connection", (socket) => {
               from:
                 user.id.toString(),
 
-              ...data,
+             ...data,
             }
           );
 
@@ -636,7 +665,7 @@ io.on("connection", (socket) => {
           from:
             user.id.toString(),
 
-          ...data,
+         ...data,
         });
       } catch (err) {
         console.error(
