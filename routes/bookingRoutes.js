@@ -10,8 +10,18 @@ console.log('API KEY set:',!!process.env.SMTP_PASS);
 
 sgMail.setApiKey(process.env.SMTP_PASS);
 
+// ─── INFOS BARBERSHOP ───────────────────────────────────────────────
+const SHOP_INFO = {
+  name: 'Mr. Renaudin Barbershop',
+  email: 'mrrenaudinbarber@gmail.com',
+  phone: '(819) 555-0199', // Change si besoin
+  address: '462 4e Rue de la Pointe',
+  city: 'Shawinigan, QC G9N 1G7',
+  website: 'https://mrrenaudinbarbershop.com'
+};
+
 const FROM_EMAIL = {
-  email: 'mrrenaudinbarber@gmail.com', // Change après Domain Auth
+  email: 'reservations@mrrenaudinbarbershop.com', // Change après Domain Auth
   name: 'Mr. Renaudin Barbershop'
 };
 
@@ -26,7 +36,7 @@ const sendBookingEmail = async (to, subject, html, text) => {
   const msg = {
     to,
     from: FROM_EMAIL,
-    replyTo: 'mrrenaudinbarber@gmail.com',
+    replyTo: SHOP_INFO.email,
     subject,
     text,
     html,
@@ -235,140 +245,146 @@ router.post('/create', authenticate, async (req, res) => {
     });
     const bookingId = booking.id;
 
-    // EMAIL CLIENT - PROFESSIONNEL
-    const clientSubject = `Confirmation de réservation - ${dateStr}`;
+    // ─── EMAIL CLIENT ───
+    const clientSubject = `Confirmation de réservation #${bookingId} - ${SHOP_INFO.name}`;
     const clientText = `
 Bonjour ${clientName},
 
-Votre rendez-vous chez Mr. Renaudin Barbershop est confirmé.
+Merci d'avoir choisi ${SHOP_INFO.name}. Votre réservation est confirmée.
 
-DÉTAILS DE LA RÉSERVATION
-Numéro de réservation : #${bookingId}
+RÉCAPITULATIF DE VOTRE RENDEZ-VOUS
+Numéro de confirmation : ${bookingId}
 Service : ${serviceName}
-Barbier : ${barberName}
+Professionnel : ${barberName}
 Date : ${dateStr}
 Heure : ${timeStr}
-Durée : ${duration} minutes
-Prix : ${price}$ CAD
+Durée estimée : ${duration} minutes
+Montant : ${price}$ CAD
 
-ADRESSE
-Mr. Renaudin Barbershop
-462 4e Rue de la Pointe
-Shawinigan, QC G9N 1G7
+LIEU DU RENDEZ-VOUS
+${SHOP_INFO.name}
+${SHOP_INFO.address}
+${SHOP_INFO.city}
 
-POLITIQUE D'ANNULATION
-Annulation gratuite jusqu'à 24 heures avant le rendez-vous.
-Pour annuler ou modifier : https://mrrenaudinbarbershop.com/compte
+CONTACT
+Téléphone : ${SHOP_INFO.phone}
+Courriel : ${SHOP_INFO.email}
+Site web : ${SHOP_INFO.website}
 
-Merci de votre confiance.
-L'équipe Mr. Renaudin Barbershop
+INFORMATIONS IMPORTANTES
+- Merci de vous présenter 5 minutes avant l'heure prévue.
+- Annulation ou modification gratuite jusqu'à 24 heures avant le rendez-vous.
+- Au-delà de ce délai, le service pourra être facturé.
+- Pour gérer votre réservation : ${SHOP_INFO.website}/compte
+
+Nous avons hâte de vous accueillir.
+
+Cordialement,
+L'équipe ${SHOP_INFO.name}
 `;
 
     const clientHtml = `
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirmation de réservation</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 0;">
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f5f5f5;padding:30px 0;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border:1px solid #e0e0e0;">
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#ffffff;border:1px solid #d9d9d9;max-width:600px;">
           <tr>
-            <td style="background-color:#0e1015;padding:40px 40px 30px;text-align:center;">
-              <h1 style="margin:0;color:#d4a843;font-family:Georgia,serif;font-size:28px;font-weight:900;letter-spacing:1px;">
-                MR. RENAUDIN
+            <td style="background-color:#0e1015;padding:35px;text-align:center;border-bottom:3px solid #d4a843;">
+              <h1 style="margin:0;color:#d4a843;font-family:Georgia,serif;font-size:26px;font-weight:bold;letter-spacing:2px;">
+                ${SHOP_INFO.name.toUpperCase()}
               </h1>
-              <p style="margin:10px 0 0;color:#b8c8da;font-size:11px;letter-spacing:3px;text-transform:uppercase;">
-                Barbershop
-              </p>
             </td>
           </tr>
           <tr>
-            <td style="padding:40px;">
-              <h2 style="margin:0 0 20px;color:#0e1015;font-size:22px;font-weight:600;">
+            <td style="padding:35px 40px;">
+              <h2 style="margin:0 0 20px;color:#1a1a1a;font-size:20px;font-weight:bold;">
                 Réservation confirmée
               </h2>
-              <p style="margin:0 0 30px;color:#333;font-size:15px;line-height:1.6;">
+              <p style="margin:0 0 25px;color:#333333;font-size:15px;line-height:1.6;">
                 Bonjour ${clientName},<br><br>
-                Votre rendez-vous chez Mr. Renaudin Barbershop est confirmé. Nous avons hâte de vous recevoir.
+                Merci d'avoir choisi ${SHOP_INFO.name}. Votre réservation est confirmée. Vous trouverez ci-dessous tous les détails de votre rendez-vous.
               </p>
 
-              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;margin-bottom:30px;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border:1px solid #d9d9d9;margin-bottom:25px;">
                 <tr>
-                  <td style="background-color:#f8f9fa;padding:15px 20px;border-bottom:1px solid #e0e0e0;">
-                    <p style="margin:0;color:#666;font-size:11px;text-transform:uppercase;letter-spacing:1px;">
-                      Numéro de réservation
+                  <td style="background-color:#f8f8f8;padding:12px 20px;border-bottom:1px solid #d9d9d9;">
+                    <p style="margin:0;color:#666666;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                      Numéro de confirmation
                     </p>
-                    <p style="margin:5px 0 0;color:#0e1015;font-size:16px;font-weight:600;">
-                      #${bookingId}
+                    <p style="margin:4px 0 0;color:#0e1015;font-size:16px;font-weight:bold;">
+                      ${bookingId}
                     </p>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:20px;">
-                    <table width="100%" cellpadding="8" cellspacing="0">
+                    <table width="100%" cellpadding="6" cellspacing="0" role="presentation">
                       <tr>
-                        <td style="color:#666;font-size:13px;width:120px;">Service</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${serviceName}</td>
+                        <td style="color:#666666;font-size:13px;width:130px;padding:6px 0;">Service réservé</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${serviceName}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Barbier</td>
-                        <td style="color:#0e1015;font-size:15px;">${barberName}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Professionnel</td>
+                        <td style="color:#1a1a1a;font-size:14px;padding:6px 0;">${barberName}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Date</td>
-                        <td style="color:#0e1015;font-size:15px;">${dateStr}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Date</td>
+                        <td style="color:#1a1a1a;font-size:14px;padding:6px 0;">${dateStr}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Heure</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${timeStr}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Heure</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${timeStr}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Durée</td>
-                        <td style="color:#0e1015;font-size:15px;">${duration} minutes</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Durée prévue</td>
+                        <td style="color:#1a1a1a;font-size:14px;padding:6px 0;">${duration} minutes</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Prix</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${price}$ CAD</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Montant</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${price}$ CAD</td>
                       </tr>
                     </table>
                   </td>
                 </tr>
               </table>
 
-              <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8f9fa;border-left:3px solid #d4a843;margin-bottom:30px;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f8f8f8;border-left:3px solid #d4a843;margin-bottom:25px;">
                 <tr>
-                  <td style="padding:20px;">
-                    <p style="margin:0 0 8px;color:#666;font-size:11px;text-transform:uppercase;letter-spacing:1px;">
-                      Adresse
+                  <td style="padding:18px 20px;">
+                    <p style="margin:0 0 6px;color:#666666;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                      Lieu du rendez-vous
                     </p>
-                    <p style="margin:0;color:#0e1015;font-size:14px;line-height:1.6;">
-                      <strong>Mr. Renaudin Barbershop</strong><br>
-                      462 4e Rue de la Pointe<br>
-                      Shawinigan, QC G9N 1G7
-                    </p>
-                  </td>
-                </tr>
-              </table>
-
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:30px;">
-                <tr>
-                  <td style="padding:15px;background-color:#fff8e1;border:1px solid #d4a843;">
-                    <p style="margin:0;color:#0e1015;font-size:13px;line-height:1.6;">
-                      <strong>Politique d'annulation :</strong> Annulation gratuite jusqu'à 24 heures avant le rendez-vous.
-                      Passé ce délai, des frais peuvent s'appliquer.
+                    <p style="margin:0;color:#1a1a1a;font-size:14px;line-height:1.6;">
+                      <strong>${SHOP_INFO.name}</strong><br>
+                      ${SHOP_INFO.address}<br>
+                      ${SHOP_INFO.city}
                     </p>
                   </td>
                 </tr>
               </table>
 
-              <table width="100%" cellpadding="0" cellspacing="0">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="margin-bottom:25px;">
                 <tr>
-                  <td align="center">
-                    <a href="https://mrrenaudinbarbershop.com/compte" style="display:inline-block;background-color:#d4a843;color:#0e1015;text-decoration:none;padding:14px 32px;font-size:13px;font-weight:600;letter-spacing:1px;text-transform:uppercase;">
+                  <td style="padding:16px;background-color:#fffbf0;border:1px solid #d4a843;">
+                    <p style="margin:0;color:#1a1a1a;font-size:13px;line-height:1.6;">
+                      <strong>Politique d'annulation :</strong> Vous pouvez annuler ou modifier votre rendez-vous sans frais jusqu'à 24 heures avant l'heure prévue. Passé ce délai, le service pourra être facturé.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td align="center" style="padding:10px 0;">
+                    <a href="${SHOP_INFO.website}/compte" style="display:inline-block;background-color:#d4a843;color:#0e1015;text-decoration:none;padding:13px 30px;font-size:12px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;border:1px solid #d4a843;">
                       Gérer ma réservation
                     </a>
                   </td>
@@ -377,13 +393,21 @@ L'équipe Mr. Renaudin Barbershop
             </td>
           </tr>
           <tr>
-            <td style="background-color:#f8f9fa;padding:30px 40px;border-top:1px solid #e0e0e0;text-align:center;">
-              <p style="margin:0 0 10px;color:#666;font-size:12px;line-height:1.6;">
-                Merci de votre confiance<br>
-                <strong style="color:#0e1015;">L'équipe Mr. Renaudin Barbershop</strong>
+            <td style="background-color:#0e1015;padding:30px 40px;text-align:center;">
+              <p style="margin:0 0 12px;color:#ffffff;font-size:14px;font-weight:bold;letter-spacing:1px;">
+                ${SHOP_INFO.name.toUpperCase()}
               </p>
-              <p style="margin:15px 0 0;color:#999;font-size:11px;">
-                Cet email a été envoyé à ${clientEmail}
+              <p style="margin:0 0 6px;color:#b8c8da;font-size:12px;line-height:1.8;">
+                ${SHOP_INFO.address}<br>
+                ${SHOP_INFO.city}
+              </p>
+              <p style="margin:12px 0 0;color:#b8c8da;font-size:12px;line-height:1.8;">
+                Téléphone : ${SHOP_INFO.phone}<br>
+                Courriel : <a href="mailto:${SHOP_INFO.email}" style="color:#d4a843;text-decoration:none;">${SHOP_INFO.email}</a><br>
+                Site web : <a href="${SHOP_INFO.website}" style="color:#d4a843;text-decoration:none;">${SHOP_INFO.website}</a>
+              </p>
+              <p style="margin:20px 0 0;color:#7888a0;font-size:11px;">
+                Ce courriel a été envoyé à ${clientEmail}
               </p>
             </td>
           </tr>
@@ -397,111 +421,129 @@ L'équipe Mr. Renaudin Barbershop
 
     await sendBookingEmail(clientEmail, clientSubject, clientHtml, clientText);
 
-    // EMAIL BARBIER - PROFESSIONNEL
-    const barberSubject = `Nouvelle réservation - ${clientName} - ${timeStr}`;
+    // ─── EMAIL BARBIER ───
+    const barberSubject = `Nouveau rendez-vous #${bookingId} - ${clientName} ${timeStr}`;
     const barberText = `
-Nouvelle réservation reçue
+NOUVELLE RÉSERVATION
 
-CLIENT
+Un nouveau rendez-vous vient d'être ajouté à votre horaire.
+
+INFORMATIONS CLIENT
 Nom : ${clientName}
-Email : ${clientEmail}
+Courriel : ${clientEmail}
 
 DÉTAILS DU RENDEZ-VOUS
-Numéro : #${bookingId}
+Numéro de réservation : ${bookingId}
 Service : ${serviceName}
 Date : ${dateStr}
 Heure : ${timeStr}
 Durée : ${duration} minutes
-Prix : ${price}$ CAD
+Montant : ${price}$ CAD
 
-Le client a reçu une confirmation automatique.
+Le client a reçu un courriel de confirmation automatique contenant tous les détails et la politique d'annulation.
+
+${SHOP_INFO.name}
+${SHOP_INFO.phone}
+${SHOP_INFO.email}
 `;
 
     const barberHtml = `
 <!DOCTYPE html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
 </head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:40px 0;">
+<body style="margin:0;padding:0;background-color:#f5f5f5;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#f5f5f5;padding:30px 0;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border:1px solid #e0e0e0;">
+        <table width="600" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#ffffff;border:1px solid #d9d9d9;max-width:600px;">
           <tr>
-            <td style="background-color:#0e1015;padding:30px 40px;text-align:center;">
-              <h1 style="margin:0;color:#d4a843;font-family:Georgia,serif;font-size:24px;font-weight:900;">
+            <td style="background-color:#0e1015;padding:25px 35px;text-align:center;border-bottom:3px solid #d4a843;">
+              <h1 style="margin:0;color:#d4a843;font-family:Georgia,serif;font-size:22px;font-weight:bold;letter-spacing:1px;">
                 NOUVELLE RÉSERVATION
               </h1>
             </td>
           </tr>
           <tr>
-            <td style="padding:40px;">
-              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;margin-bottom:25px;">
+            <td style="padding:35px;">
+              <p style="margin:0 0 25px;color:#333333;font-size:14px;line-height:1.6;">
+                Un nouveau rendez-vous vient d'être ajouté à votre horaire.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border:1px solid #d9d9d9;margin-bottom:20px;">
                 <tr>
-                  <td style="background-color:#f8f9fa;padding:15px 20px;border-bottom:1px solid #e0e0e0;">
-                    <p style="margin:0;color:#666;font-size:11px;text-transform:uppercase;letter-spacing:1px;">
-                      Client
+                  <td style="background-color:#f8f8f8;padding:12px 20px;border-bottom:1px solid #d9d9d9;">
+                    <p style="margin:0;color:#666666;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
+                      Informations client
                     </p>
-                    <p style="margin:5px 0 0;color:#0e1015;font-size:18px;font-weight:600;">
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <p style="margin:0 0 8px;color:#1a1a1a;font-size:17px;font-weight:bold;">
                       ${clientName}
                     </p>
-                    <p style="margin:5px 0 0;color:#666;font-size:13px;">
+                    <p style="margin:0;color:#666666;font-size:13px;">
                       ${clientEmail}
                     </p>
                   </td>
                 </tr>
               </table>
 
-              <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e0e0e0;">
+              <table width="100%" cellpadding="0" cellspacing="0" role="presentation" style="border:1px solid #d9d9d9;">
                 <tr>
-                  <td style="background-color:#0e1015;padding:15px 20px;">
-                    <p style="margin:0;color:#d4a843;font-size:11px;text-transform:uppercase;letter-spacing:1px;">
+                  <td style="background-color:#0e1015;padding:12px 20px;">
+                    <p style="margin:0;color:#d4a843;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;">
                       Détails du rendez-vous
                     </p>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:20px;">
-                    <table width="100%" cellpadding="8" cellspacing="0">
+                    <table width="100%" cellpadding="6" cellspacing="0" role="presentation">
                       <tr>
-                        <td style="color:#666;font-size:13px;width:140px;">Numéro</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">#${bookingId}</td>
+                        <td style="color:#666666;font-size:13px;width:140px;padding:6px 0;">Numéro</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${bookingId}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Service</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${serviceName}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Service</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${serviceName}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Date</td>
-                        <td style="color:#0e1015;font-size:15px;">${dateStr}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Date</td>
+                        <td style="color:#1a1a1a;font-size:14px;padding:6px 0;">${dateStr}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Heure</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${timeStr}</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Heure</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${timeStr}</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Durée</td>
-                        <td style="color:#0e1015;font-size:15px;">${duration} minutes</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Durée</td>
+                        <td style="color:#1a1a1a;font-size:14px;padding:6px 0;">${duration} minutes</td>
                       </tr>
                       <tr>
-                        <td style="color:#666;font-size:13px;">Prix</td>
-                        <td style="color:#0e1015;font-size:15px;font-weight:600;">${price}$ CAD</td>
+                        <td style="color:#666666;font-size:13px;padding:6px 0;">Montant</td>
+                        <td style="color:#1a1a1a;font-size:14px;font-weight:bold;padding:6px 0;">${price}$ CAD</td>
                       </tr>
                     </table>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin:25px 0 0;color:#666;font-size:13px;text-align:center;">
-                Le client a reçu une confirmation automatique avec tous les détails.
+              <p style="margin:25px 0 0;color:#666666;font-size:13px;text-align:center;line-height:1.6;">
+                Le client a reçu un courriel de confirmation automatique avec tous les détails et la politique d'annulation.
               </p>
             </td>
           </tr>
           <tr>
-            <td style="background-color:#f8f9fa;padding:20px;text-align:center;border-top:1px solid #e0e0e0;">
-              <p style="margin:0;color:#999;font-size:11px;">
-                Mr. Renaudin Barbershop - Système de réservation
+            <td style="background-color:#0e1015;padding:25px 35px;text-align:center;">
+              <p style="margin:0 0 8px;color:#ffffff;font-size:13px;font-weight:bold;">
+                ${SHOP_INFO.name}
+              </p>
+              <p style="margin:0;color:#b8c8da;font-size:11px;line-height:1.8;">
+                ${SHOP_INFO.address}, ${SHOP_INFO.city}<br>
+                ${SHOP_INFO.phone} | ${SHOP_INFO.email}
               </p>
             </td>
           </tr>
