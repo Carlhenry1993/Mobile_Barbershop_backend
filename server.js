@@ -351,127 +351,90 @@ io.on("connection", (socket) => {
 
   // ================= SEND MESSAGE TO ADMIN =================
 
-  socket.on(
-    "send_message_to_admin",
-    async (
-      { message },
-      callback
-    ) => {
-      try {
-        if (!message?.trim()) {
-          return;
-        }
+  // ================= SEND MESSAGE TO ADMIN =================
+socket.on(
+  "send_message_to_admin",
+  async ({ message }, callback) => {
+    try {
+      if (!message?.trim()) return;
 
-        const saved =
-          await saveMessage(
-            user.id.toString(),
-            "admin",
-            message.trim()
-          );
+      const saved = await saveMessage(
+        user.id.toString(),
+        "admin",
+        message.trim()
+      );
 
-        io.to("admins").emit(
-          "new_message",
-          {
-            id: saved.id,
+      const payload = {
+        id: saved.id,
+        sender: user.username || `Client ${user.id}`,
+        senderId: user.id.toString(),
+        recipientId: "admin",
+        message: saved.message,
+        timestamp: saved.timestamp,
+        is_read: saved.is_read,
+      };
 
-            sender:
-              user.username ||
-              `Client ${user.id}`,
+      // 1. Envoyer aux admins
+      io.to("admins").emit("new_message", payload);
+      // 2. Envoyer au client pour qu'il voie son msg aussi
+      io.to(`user:${user.id}`).emit("new_message", payload);
 
-            senderId:
-              user.id.toString(),
-
-            recipientId: "admin",
-
-            message: saved.message,
-
-            timestamp:
-              saved.timestamp,
-
-            read: saved.is_read,
-          }
-        );
-
-        callback?.({
-          success: true,
-          message: saved,
-        });
-      } catch (err) {
-        console.error(
-          "send_message_to_admin error:",
-          err
-        );
-
-        callback?.({
-          success: false,
-          error: "Message failed",
-        });
-      }
+      callback?.({
+        success: true,
+        message: saved,
+      });
+    } catch (err) {
+      console.error("send_message_to_admin error:", err);
+      callback?.({
+        success: false,
+        error: "Message failed",
+      });
     }
-  );
+  }
+);
 
-  // ================= SEND MESSAGE TO CLIENT =================
+// ================= SEND MESSAGE TO CLIENT =================
+socket.on(
+  "send_message_to_client",
+  async ({ clientId, message }, callback) => {
+    try {
+      if (user.role!== "admin") return;
+      if (!message?.trim()) return;
 
-  socket.on(
-    "send_message_to_client",
-    async (
-      { clientId, message },
-      callback
-    ) => {
-      try {
-        if (user.role!== "admin") {
-          return;
-        }
+      const saved = await saveMessage(
+        "admin",
+        clientId.toString(),
+        message.trim()
+      );
 
-        if (!message?.trim()) {
-          return;
-        }
+      const payload = {
+        id: saved.id,
+        sender: "Mr. Renaudin Barbershop",
+        senderId: "admin",
+        recipientId: clientId.toString(),
+        message: saved.message,
+        timestamp: saved.timestamp,
+        is_read: saved.is_read,
+      };
 
-        const saved =
-          await saveMessage(
-            "admin",
-            clientId.toString(),
-            message.trim()
-          );
+      // 1. Envoyer au client
+      io.to(`user:${clientId}`).emit("new_message", payload);
+      // 2. Envoyer à TOUS les admins pour que l'expéditeur voie son msg
+      io.to("admins").emit("new_message", payload);
 
-        io.to(
-          `user:${clientId}`
-        ).emit("new_message", {
-          id: saved.id,
-
-          sender: "admin",
-
-          senderId: "admin",
-
-          recipientId:
-            clientId.toString(),
-
-          message: saved.message,
-
-          timestamp:
-            saved.timestamp,
-
-          read: saved.is_read,
-        });
-
-        callback?.({
-          success: true,
-          message: saved,
-        });
-      } catch (err) {
-        console.error(
-          "send_message_to_client error:",
-          err
-        );
-
-        callback?.({
-          success: false,
-          error: "Message failed",
-        });
-      }
+      callback?.({
+        success: true,
+        message: saved,
+      });
+    } catch (err) {
+      console.error("send_message_to_client error:", err);
+      callback?.({
+        success: false,
+        error: "Message failed",
+      });
     }
-  );
-
+  }
+);
   // ================= TYPING =================
 
   socket.on(
