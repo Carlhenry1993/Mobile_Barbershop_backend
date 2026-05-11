@@ -122,16 +122,16 @@ app.get(
   async (req, res) => {
     try {
       const user = req.user;
-      const { clientId } = req.query; // Pour admin qui veut une conversation spécifique
+      const { clientId } = req.query;
 
       let query = "";
       let params = [];
 
       if (user.role === "admin") {
-        // Si admin demande un clientId spécifique : on filtre la conversation
         if (clientId) {
+          // Admin demande l'historique d'un client précis
           query = `
-            SELECT *
+            SELECT id, sender, recipient, message, timestamp, is_read
             FROM messages
             WHERE (sender = $1 AND recipient = 'admin')
                OR (sender = 'admin' AND recipient = $1)
@@ -139,17 +139,17 @@ app.get(
           `;
           params = [clientId.toString()];
         } else {
-          // Sinon on renvoie tout pour le dashboard admin
+          // Dashboard admin : tout
           query = `
-            SELECT *
+            SELECT id, sender, recipient, message, timestamp, is_read
             FROM messages
             ORDER BY timestamp ASC
           `;
         }
       } else {
-        // Client : seulement sa conversation avec admin
+        // Client : UNIQUEMENT sa convo avec admin
         query = `
-          SELECT *
+          SELECT id, sender, recipient, message, timestamp, is_read
           FROM messages
           WHERE (sender = $1 AND recipient = 'admin')
              OR (sender = 'admin' AND recipient = $1)
@@ -158,77 +158,12 @@ app.get(
         params = [user.id.toString()];
       }
 
-      const result = await pool.query(
-        query,
-        params
-      );
+      const result = await pool.query(query, params);
 
-      const messages = result.rows.map((msg) => ({
-        id: msg.id,
-        sender: msg.sender,
-        recipient: msg.recipient,
-        message: msg.message,
-        timestamp: msg.timestamp,
-        is_read: msg.is_read,
-      }));
-
-      res.json(messages);
+      res.json(result.rows);
     } catch (err) {
-      console.error(
-        "Fetch messages error:",
-        err.message
-      );
-
-      res.status(500).json({
-        error: "Error fetching messages",
-      });
-    }
-  }
-);
-
-app.put(
-  "/api/messages/markAsRead",
-  authenticate,
-  async (req, res) => {
-    try {
-      const user = req.user;
-      const { clientId } = req.body; // Pour admin : marquer les msgs d'un client précis
-
-      let query = "";
-      let params = [];
-
-      if (user.role === "admin" && clientId) {
-        // Admin marque comme lu les messages du clientId
-        query = `
-          UPDATE messages
-          SET is_read = true
-          WHERE sender = $1 AND recipient = 'admin' AND is_read = false
-        `;
-        params = [clientId.toString()];
-      } else {
-        // Client marque comme lu les messages de admin
-        query = `
-          UPDATE messages
-          SET is_read = true
-          WHERE sender = 'admin' AND recipient = $1 AND is_read = false
-        `;
-        params = [user.id.toString()];
-      }
-
-      await pool.query(query, params);
-
-      res.json({
-        success: true,
-      });
-    } catch (err) {
-      console.error(
-        "Mark read error:",
-        err.message
-      );
-
-      res.status(500).json({
-        error: "Error marking messages",
-      });
+      console.error("Fetch messages error:", err.message);
+      res.status(500).json({ error: "Error fetching messages" });
     }
   }
 );
