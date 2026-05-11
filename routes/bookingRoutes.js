@@ -11,7 +11,7 @@ console.log('API KEY set:',!!process.env.SMTP_PASS);
 sgMail.setApiKey(process.env.SMTP_PASS);
 
 const FROM_EMAIL = {
-  email: 'reservations@mrrenaudinbarbershop.com', // Change après Domain Auth
+  email: 'mrrenaudinbarber@gmail.com', // Change après Domain Auth
   name: 'Mr. Renaudin Barbershop'
 };
 
