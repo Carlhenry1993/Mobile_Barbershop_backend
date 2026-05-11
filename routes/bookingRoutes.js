@@ -14,14 +14,14 @@ sgMail.setApiKey(process.env.SMTP_PASS);
 const SHOP_INFO = {
   name: 'Mr. Renaudin Barbershop',
   email: 'mrrenaudinbarber@gmail.com',
-  phone: '(819) 555-0199', // Change si besoin
+  phone: '(514) 778-8318 ', // Change si besoin
   address: '462 4e Rue de la Pointe',
   city: 'Shawinigan, QC G9N 1G7',
   website: 'https://mrrenaudinbarbershop.com'
 };
 
 const FROM_EMAIL = {
-  email: 'reservations@mrrenaudinbarbershop.com', // Change après Domain Auth
+  email: 'mrrenaudinbarber@gmail.com', // Change après Domain Auth
   name: 'Mr. Renaudin Barbershop'
 };
 
