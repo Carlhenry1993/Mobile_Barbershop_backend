@@ -232,74 +232,52 @@ io.on("connection", (socket) => {
   }
 
   // SEND MESSAGE TO ADMIN
-  socket.on("send_message_to_admin", async ({ message }, callback) => {
-    try {
-      if (!message?.trim()) return;
-      const saved = await saveMessage(user.id.toString(), "admin", message.trim());
-      const payload = {
-        id: saved.id,
-        sender: user.username || `Client ${user.id}`,
-        senderId: user.id.toString(),
-        recipientId: "admin",
-        message: saved.message,
-        timestamp: saved.timestamp,
-        is_read: saved.is_read,
-      };
-      io.to("admins").emit("new_message", payload);
-      io.to(`user:${user.id}`).emit("new_message", payload);
-      callback?.({ success: true, message: saved });
-    } catch (err) {
-      console.error("send_message_to_admin error:", err);
-      callback?.({ success: false, error: "Message failed" });
-    }
-  });
+  // SEND MESSAGE TO ADMIN
+socket.on("send_message_to_admin", async ({ message }, callback) => {
+  try {
+    if (!message?.trim()) return;
+    const saved = await saveMessage(user.id.toString(), "admin", message.trim());
+    const payload = {
+      id: saved.id,
+      senderId: user.id.toString(), // ID pour la logique
+      senderName: user.username || `Client ${user.id}`, // Nom pour l’affichage
+      recipientId: "admin",
+      message: saved.message,
+      timestamp: saved.timestamp,
+      is_read: saved.is_read,
+    };
+    io.to("admins").emit("new_message", payload);
+    io.to(`user:${user.id}`).emit("new_message", payload);
+    callback?.({ success: true, message: saved });
+  } catch (err) {
+    console.error("send_message_to_admin error:", err);
+    callback?.({ success: false, error: "Message failed" });
+  }
+});
 
-  // SEND MESSAGE TO CLIENT
-  socket.on("send_message_to_client", async ({ clientId, message }, callback) => {
-    try {
-      if (user.role!== "admin") return;
-      if (!message?.trim()) return;
-      const saved = await saveMessage("admin", clientId.toString(), message.trim());
-      const payload = {
-        id: saved.id,
-        sender: "Mr. Renaudin Barbershop",
-        senderId: "admin",
-        recipientId: clientId.toString(),
-        message: saved.message,
-        timestamp: saved.timestamp,
-        is_read: saved.is_read,
-      };
-      io.to(`user:${clientId}`).emit("new_message", payload);
-      io.to("admins").emit("new_message", payload);
-      callback?.({ success: true, message: saved });
-    } catch (err) {
-      console.error("send_message_to_client error:", err);
-      callback?.({ success: false, error: "Message failed" });
-    }
-  });
-
-  socket.on("typing", ({ to, isTyping }) => {
-    if (!to) return;
-    if (to === "admin") {
-      io.to("admins").emit("typing", { from: user.id.toString(), isTyping });
-      return;
-    }
-    io.to(`user:${to}`).emit("typing", { from: user.id.toString(), isTyping });
-  });
-
-  socket.on("message_read", async ({ messageIds, to }) => {
-    try {
-      if (!Array.isArray(messageIds)) return;
-      await pool.query(`UPDATE messages SET is_read = true WHERE id = ANY($1)`, [messageIds]);
-      if (to === "admin") {
-        io.to("admins").emit("messages_read", { messageIds });
-        return;
-      }
-      io.to(`user:${to}`).emit("messages_read", { messageIds });
-    } catch (err) {
-      console.error("message_read error:", err);
-    }
-  });
+// SEND MESSAGE TO CLIENT
+socket.on("send_message_to_client", async ({ clientId, message }, callback) => {
+  try {
+    if (user.role!== "admin") return;
+    if (!message?.trim()) return;
+    const saved = await saveMessage("admin", clientId.toString(), message.trim());
+    const payload = {
+      id: saved.id,
+      senderId: "admin", // ID pour la logique
+      senderName: "Mr. Renaudin Barbershop", // Nom pour l’affichage
+      recipientId: clientId.toString(),
+      message: saved.message,
+      timestamp: saved.timestamp,
+      is_read: saved.is_read,
+    };
+    io.to(`user:${clientId}`).emit("new_message", payload);
+    io.to("admins").emit("new_message", payload);
+    callback?.({ success: true, message: saved });
+  } catch (err) {
+    console.error("send_message_to_client error:", err);
+    callback?.({ success: false, error: "Message failed" });
+  }
+});
 
   // CALL SYSTEM
   const callEvents = [
