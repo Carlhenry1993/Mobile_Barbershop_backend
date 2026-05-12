@@ -89,27 +89,60 @@ app.get("/api/messages", authenticate, async (req, res) => {
     if (user.role === "admin") {
       if (clientId) {
         query = `
-          SELECT id, sender, recipient, message, timestamp, is_read
-          FROM messages
-          WHERE (sender = $1 AND recipient = 'admin')
-             OR (sender = 'admin' AND recipient = $1)
-          ORDER BY timestamp ASC
+          SELECT 
+            m.id, 
+            m.sender as "senderId", 
+            CASE 
+              WHEN m.sender = 'admin' THEN 'Mr. Renaudin Barbershop'
+              ELSE COALESCE(u.username, 'Client ' || m.sender)
+            END as "senderName",
+            m.recipient as "recipientId", 
+            m.message, 
+            m.timestamp, 
+            m.is_read
+          FROM messages m
+          LEFT JOIN users u ON u.id::text = m.sender
+          WHERE (m.sender = $1 AND m.recipient = 'admin')
+             OR (m.sender = 'admin' AND m.recipient = $1)
+          ORDER BY m.timestamp ASC
         `;
         params = [clientId.toString()];
       } else {
         query = `
-          SELECT id, sender, recipient, message, timestamp, is_read
-          FROM messages
-          ORDER BY timestamp ASC
+          SELECT 
+            m.id, 
+            m.sender as "senderId",
+            CASE 
+              WHEN m.sender = 'admin' THEN 'Mr. Renaudin Barbershop'
+              ELSE COALESCE(u.username, 'Client ' || m.sender)
+            END as "senderName",
+            m.recipient as "recipientId", 
+            m.message, 
+            m.timestamp, 
+            m.is_read
+          FROM messages m
+          LEFT JOIN users u ON u.id::text = m.sender
+          ORDER BY m.timestamp ASC
         `;
       }
     } else {
       query = `
-        SELECT id, sender, recipient, message, timestamp, is_read
-        FROM messages
-        WHERE (sender = $1 AND recipient = 'admin')
-           OR (sender = 'admin' AND recipient = $1)
-        ORDER BY timestamp ASC
+        SELECT 
+          m.id, 
+          m.sender as "senderId",
+          CASE 
+            WHEN m.sender = 'admin' THEN 'Mr. Renaudin Barbershop'
+            ELSE COALESCE(u.username, 'Client ' || m.sender)
+          END as "senderName",
+          m.recipient as "recipientId", 
+          m.message, 
+          m.timestamp, 
+          m.is_read
+        FROM messages m
+        LEFT JOIN users u ON u.id::text = m.sender
+        WHERE (m.sender = $1 AND m.recipient = 'admin')
+           OR (m.sender = 'admin' AND m.recipient = $1)
+        ORDER BY m.timestamp ASC
       `;
       params = [user.id.toString()];
     }
@@ -119,37 +152,6 @@ app.get("/api/messages", authenticate, async (req, res) => {
   } catch (err) {
     console.error("Fetch messages error:", err.message);
     res.status(500).json({ error: "Error fetching messages" });
-  }
-});
-
-app.put("/api/messages/markAsRead", authenticate, async (req, res) => {
-  try {
-    const user = req.user;
-    const { clientId } = req.body;
-    let query = "";
-    let params = [];
-
-    if (user.role === "admin" && clientId) {
-      query = `
-        UPDATE messages
-        SET is_read = true
-        WHERE sender = $1 AND recipient = 'admin' AND is_read = false
-      `;
-      params = [clientId.toString()];
-    } else {
-      query = `
-        UPDATE messages
-        SET is_read = true
-        WHERE sender = 'admin' AND recipient = $1 AND is_read = false
-      `;
-      params = [user.id.toString()];
-    }
-
-    await pool.query(query, params);
-    res.json({ success: true });
-  } catch (err) {
-    console.error("Mark read error:", err.message);
-    res.status(500).json({ error: "Error marking messages" });
   }
 });
 
