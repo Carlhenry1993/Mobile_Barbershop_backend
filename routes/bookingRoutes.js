@@ -142,8 +142,14 @@ router.get('/availability', async (req, res) => {
     );
 
     const slots = [];
-    const workStart = new Date(`${date}T${start_time}Z`);
-    const workEnd = new Date(`${date}T${end_time}Z`);
+  const [startH, startM] = start_time.split(':').map(Number);
+const [endH, endM] = end_time.split(':').map(Number);
+
+const workStart = new Date(date);
+workStart.setHours(startH, startM, 0, 0);
+
+const workEnd = new Date(date);
+workEnd.setHours(endH, endM, 0, 0);
     const now = new Date();
 
     for (let slot = new Date(workStart); slot < workEnd; slot.setMinutes(slot.getMinutes() + 15)) {
