@@ -1,69 +1,157 @@
+```js id="l0n6qv"
 // controllers/bookingController.js
+
 const { notifyBarber, confirmToClient } = require('../services/emailService');
 
+const SHOP_HOURS = {
+  0: { start: 11, end: 17 }, // Dimanche
+  1: { start: 11, end: 19 }, // Lundi
+  2: { start: 11, end: 19 }, // Mardi
+  3: { start: 11, end: 19 }, // Mercredi
+  4: { start: 11, end: 19 }, // Jeudi
+  5: { start: 11, end: 19 }, // Vendredi
+  6: { start: 12, end: 19 }, // Samedi
+};
+
+// ─────────────────────────────────────────────
+// Vérifie si le créneau respecte l'horaire
+// ─────────────────────────────────────────────
+function isValidBookingTime(dateString) {
+  const bookingDate = new Date(dateString);
+
+  const day = bookingDate.getDay();
+  const hour = bookingDate.getHours();
+  const minutes = bookingDate.getMinutes();
+
+  const hours = SHOP_HOURS[day];
+
+  if (!hours) {
+    return false;
+  }
+
+  const bookingTime = hour + minutes / 60;
+
+  return (
+    bookingTime >= hours.start &&
+    bookingTime < hours.end
+  );
+}
+
+// ─────────────────────────────────────────────
+// Création réservation
+// ─────────────────────────────────────────────
 exports.createReservation = async (req, res) => {
   const bookingData = req.body;
 
-  // Validation des données reçues (assurez-vous que toutes les informations nécessaires sont présentes)
-  if (!bookingData.fullName || !bookingData.phoneNumber || !bookingData.email) {
+  // Validation des champs obligatoires
+  if (
+    !bookingData.fullName ||
+    !bookingData.phoneNumber ||
+    !bookingData.email
+  ) {
     return res.status(400).json({
-      message: 'Les informations de base (nom, téléphone, email) sont obligatoires.',
+      message:
+        'Les informations de base (nom, téléphone, email) sont obligatoires.',
+    });
+  }
+
+  // Validation date/heure réservation
+  if (!bookingData.startTime) {
+    return res.status(400).json({
+      message: 'La date et l’heure du rendez-vous sont obligatoires.',
+    });
+  }
+
+  // Vérifier l'horaire du salon
+  const validTime = isValidBookingTime(bookingData.startTime);
+
+  if (!validTime) {
+    return res.status(400).json({
+      message:
+        'Ce créneau est en dehors des horaires du barbershop.',
     });
   }
 
   try {
-    // Envoyer une notification au coiffeur avec les informations de réservation
+
+    // ─────────────────────────────────────────
+    // Ici vous pouvez ajouter :
+    // - sauvegarde DB
+    // - vérification conflit réservation
+    // - génération ID réservation
+    // ─────────────────────────────────────────
+
+
+    // Notification barbier
     await notifyBarber(bookingData);
 
-    // Envoyer un email au client pour informer que sa réservation est en attente
+    // Email client
     await confirmToClient({
       ...bookingData,
-      status: 'En attente', // Ajouter le statut de réservation dans les données
+      status: 'En attente',
     });
 
     res.status(200).json({
-      message: 'Réservation envoyée avec succès. Le coiffeur a été notifié, et un email a été envoyé au client avec le statut en attente.',
+      message:
+        'Réservation envoyée avec succès. Le coiffeur a été notifié et un email a été envoyé au client.',
     });
-  } catch (error) {
-    console.error('Erreur lors de la création de la réservation :', error);
 
-    // En fonction de l'erreur, vous pourriez renvoyer des messages différents pour mieux comprendre l'origine du problème.
-    const errorMessage = error.message || 'Une erreur est survenue lors de la réservation.';
-    
+  } catch (error) {
+
+    console.error(
+      'Erreur lors de la création de la réservation :',
+      error
+    );
+
+    const errorMessage =
+      error.message ||
+      'Une erreur est survenue lors de la réservation.';
+
     res.status(500).json({
       message: errorMessage,
     });
   }
 };
 
-// Fonction pour confirmer la réservation au client (peut être appelée plus tard)
+// ─────────────────────────────────────────────
+// Confirmation réservation
+// ─────────────────────────────────────────────
 exports.confirmReservation = async (req, res) => {
   const bookingData = req.body;
 
-  // Validation des données reçues pour la confirmation
   if (!bookingData.email || !bookingData.status) {
     return res.status(400).json({
-      message: 'L\'email du client et le statut sont nécessaires pour la confirmation.',
+      message:
+        "L'email du client et le statut sont nécessaires pour la confirmation.",
     });
   }
 
   try {
-    // Envoyer un email au client pour confirmer la réservation
+
     await confirmToClient({
       ...bookingData,
-      status: 'Confirmée', // Met à jour le statut à "Confirmée"
+      status: 'Confirmée',
     });
 
     res.status(200).json({
-      message: 'Confirmation envoyée au client avec succès.',
+      message:
+        'Confirmation envoyée au client avec succès.',
     });
-  } catch (error) {
-    console.error('Erreur lors de la confirmation au client :', error);
 
-    // Renvoi d'un message d'erreur plus détaillé
-    const errorMessage = error.message || 'Une erreur est survenue lors de la confirmation.';
+  } catch (error) {
+
+    console.error(
+      'Erreur lors de la confirmation au client :',
+      error
+    );
+
+    const errorMessage =
+      error.message ||
+      'Une erreur est survenue lors de la confirmation.';
+
     res.status(500).json({
       message: errorMessage,
     });
   }
 };
+```
