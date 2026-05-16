@@ -562,4 +562,45 @@ router.patch('/admin/:id/complete', authenticateAdmin, async (req, res) => {
   }
 });
 
+// GET /admin/clients — Clients réels (au moins 1 service complété)
+router.get('/admin/clients', authenticateAdmin, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT
+          u.id,
+          u.username,
+          u.first_name,
+          u.last_name,
+          u.email,
+          u.phone,
+          u.created_at                              AS member_since,
+
+          COUNT(b.id) FILTER (WHERE b.status = 'completed')              AS total_completed,
+          COUNT(b.id) FILTER (WHERE b.status = 'confirmed')              AS upcoming,
+          COUNT(b.id) FILTER (WHERE b.status = 'cancelled')              AS total_cancelled,
+
+          SUM(s.price)  FILTER (WHERE b.status = 'completed')            AS total_spent,
+
+          MAX(b.start_time) FILTER (WHERE b.status = 'completed')        AS last_visit,
+          MIN(b.start_time) FILTER (WHERE b.status = 'completed')        AS first_visit,
+
+          -- Service le plus fréquent
+          MODE() WITHIN GROUP (ORDER BY s.name)
+            FILTER (WHERE b.status = 'completed')                        AS favourite_service
+
+       FROM users u
+       JOIN bookings b ON b.client_id = u.id
+       JOIN services s ON s.id = b.service_id
+       WHERE u.role = 'client'
+       GROUP BY u.id, u.username, u.first_name, u.last_name, u.email, u.phone, u.created_at
+       HAVING COUNT(b.id) FILTER (WHERE b.status = 'completed') >= 1
+       ORDER BY last_visit DESC NULLS LAST`,
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Error fetching clients:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;
