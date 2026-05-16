@@ -88,6 +88,63 @@ router.get('/barbers', async (req, res) => {
   }
 });
 
+// ─── Horaires officiels Mr. Renaudin Barbershop ───────────────────────────────
+// 0=Dim 1=Lun 2=Mar 3=Mer 4=Jeu 5=Ven 6=Sam
+const SHOP_HOURS = {
+  0: { open: '11:00', close: '17:00' }, // Dimanche
+  1: { open: '11:00', close: '19:00' }, // Lundi
+  2: { open: '11:00', close: '19:00' }, // Mardi
+  3: { open: '11:00', close: '19:00' }, // Mercredi
+  4: { open: '11:00', close: '19:00' }, // Jeudi
+  5: { open: '11:00', close: '19:00' }, // Vendredi
+  6: { open: '12:00', close: '19:00' }, // Samedi
+};
+
+const SLOT_INTERVAL_MIN = 30; // intervalle entre créneaux
+const TIMEZONE = 'America/Toronto';
+
+/**
+ * Retourne le jour de semaine (0-6) d'une date YYYY-MM-DD
+ * interprétée dans la timezone du barbershop.
+ */
+const getDayOfWeekInShopTz = (dateStr) => {
+  const ref = new Date(dateStr + 'T12:00:00Z');
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: TIMEZONE,
+    weekday: 'short',
+  }).formatToParts(ref);
+  const dayName = parts.find(p => p.type === 'weekday').value;
+  return { Sun:0, Mon:1, Tue:2, Wed:3, Thu:4, Fri:5, Sat:6 }[dayName];
+};
+
+/**
+ * Convertit "YYYY-MM-DD" + "HH:MM" (heure locale du barbershop)
+ * en un objet Date UTC.
+ */
+const shopTimeToUTC = (dateStr, timeStr) => {
+  // Créer une date fictive en interprétant l'heure comme locale du shop
+  const [h, m] = timeStr.split(':').map(Number);
+  // Utiliser le format ISO avec timezone offset obtenu dynamiquement
+  // On crée la date naïvement, puis on corrige avec l'offset réel de la TZ
+  const naive = new Date(`${dateStr}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+  
+  // Obtenir l'offset réel de America/Toronto pour ce moment
+  // en comparant l'heure UTC vs l'heure locale du shop
+  const utcHour = naive.getUTCHours();
+  const utcMin  = naive.getUTCMinutes();
+  const shopStr = naive.toLocaleString('en-US', {
+    timeZone: TIMEZONE, hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const [sh, sm] = shopStr.replace('24:', '00:').split(':').map(Number);
+  
+  // Différence entre ce qu'on voulait (h:m) et ce qu'on a (sh:sm) en UTC
+  const wantedMinutes = h * 60 + m;
+  const gotMinutes    = sh * 60 + sm;
+  const diffMs        = (wantedMinutes - gotMinutes) * 60000;
+  
+  return new Date(naive.getTime() + diffMs);
+};
+
 // GET /availability
 router.get('/availability', async (req, res) => {
   const { date, barberId, serviceId } = req.query;
@@ -95,46 +152,74 @@ router.get('/availability', async (req, res) => {
     return res.status(400).json({ error: 'date, barberId, serviceId requis' });
 
   try {
+    // 1. Durée du service
     const serviceRes = await pool.query(
       'SELECT duration FROM services WHERE id = $1 AND active = true', [serviceId]
     );
-    if (!serviceRes.rows.length) return res.status(404).json({ error: 'Service introuvable' });
-    const duration = serviceRes.rows[0].duration;
+    if (!serviceRes.rows.length)
+      return res.status(404).json({ error: 'Service introuvable' });
+    const serviceDuration = serviceRes.rows[0].duration;
 
-    const dayOfWeek = new Date(date + 'T12:00:00Z').getUTCDay();
-    const scheduleRes = await pool.query(
-      'SELECT start_time, end_time FROM barber_schedules WHERE barber_id = $1 AND day_of_week = $2',
-      [barberId, dayOfWeek]
-    );
-    if (!scheduleRes.rows.length) return res.json([]);
+    // 2. Jour de la semaine dans la timezone du barbershop
+    const dayKey = getDayOfWeekInShopTz(date);
+    const hours  = SHOP_HOURS[dayKey];
+    if (!hours) {
+      console.log(`[availability] Aucun horaire pour dayKey=${dayKey}`);
+      return res.json([]);
+    }
 
-    const { start_time, end_time } = scheduleRes.rows[0];
+    // 3. Convertir ouverture/fermeture en UTC
+    const workOpen  = shopTimeToUTC(date, hours.open);
+    const workClose = shopTimeToUTC(date, hours.close);
+
+    console.log(`[availability] date=${date} dayKey=${dayKey} open=${hours.open} close=${hours.close}`);
+    console.log(`[availability] workOpen=${workOpen.toISOString()} workClose=${workClose.toISOString()}`);
+
+    // 4. Réservations existantes ce jour-là pour ce barbier
     const bookingsRes = await pool.query(
       `SELECT start_time, end_time FROM bookings
-       WHERE barber_id = $1 AND DATE(start_time) = $2 AND status != 'cancelled'
+       WHERE barber_id = $1
+         AND DATE(start_time AT TIME ZONE $3) = $2::date
+         AND status != 'cancelled'
        UNION ALL
        SELECT start_time, end_time FROM barber_blocks
-       WHERE barber_id = $1 AND DATE(start_time) = $2`,
-      [barberId, date]
+       WHERE barber_id = $1
+         AND DATE(start_time AT TIME ZONE $3) = $2::date`,
+      [barberId, date, TIMEZONE]
     );
 
+    // 5. Générer les créneaux toutes les 30 minutes
     const slots = [];
-    const workStart = new Date(`${date}T${start_time}Z`);
-    const workEnd   = new Date(`${date}T${end_time}Z`);
-    const now       = new Date();
+    const now   = new Date();
+    // Marge de 30 min : on ne propose pas les créneaux dans moins de 30 min
+    const minBookableTime = new Date(now.getTime() + 30 * 60000);
 
-    for (let slot = new Date(workStart); slot < workEnd; slot.setMinutes(slot.getMinutes() + 15)) {
-      const slotEnd = new Date(slot.getTime() + duration * 60000);
-      if (slotEnd > workEnd) break;
+    for (
+      let slot = new Date(workOpen);
+      slot < workClose;
+      slot = new Date(slot.getTime() + SLOT_INTERVAL_MIN * 60000)
+    ) {
+      const slotEnd = new Date(slot.getTime() + serviceDuration * 60000);
+
+      // Le service doit finir avant la fermeture
+      if (slotEnd > workClose) break;
+
+      // Uniquement les créneaux futurs (avec marge)
+      if (slot < minBookableTime) continue;
+
+      // Vérifier conflit avec réservations existantes
       const isBooked = bookingsRes.rows.some(b => {
         const bStart = new Date(b.start_time);
         const bEnd   = new Date(b.end_time);
         return slot < bEnd && slotEnd > bStart;
       });
-      if (!isBooked && slot > now) slots.push(slot.toISOString());
+
+      if (!isBooked) slots.push(slot.toISOString());
     }
 
+    console.log(`[availability] ${slots.length} créneaux générés`);
     res.json(slots);
+
   } catch (err) {
     console.error('Error fetching availability:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -167,6 +252,19 @@ router.post('/create', authenticate, async (req, res) => {
     if (start < new Date()) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Impossible de réserver dans le passé' });
+    }
+
+    // Valider que le créneau respecte les horaires du barbershop
+    const bookingDateStr = start.toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+    const dayKeyCreate  = getDayOfWeekInShopTz(bookingDateStr);
+    const shopHrs       = SHOP_HOURS[dayKeyCreate];
+    if (shopHrs) {
+      const shopOpen  = shopTimeToUTC(bookingDateStr, shopHrs.open);
+      const shopClose = shopTimeToUTC(bookingDateStr, shopHrs.close);
+      if (start < shopOpen || endTime > shopClose) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: "Ce créneau est en dehors des heures d'ouverture." });
+      }
     }
 
     const conflict = await client.query(
