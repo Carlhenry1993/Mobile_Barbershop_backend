@@ -36,7 +36,7 @@ app.use(
   })
 );
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "8mb" }));
 
 // ================= STATIC =================
 app.use(
@@ -160,6 +160,8 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/booking", require("./routes/bookingRoutes"));
 app.use("/api/contact", require("./routes/contactRoutes"));
 app.use("/api/announcements", require("./routes/announcementRoutes"));
+app.use("/api/gallery", require("./routes/galleryRoutes"));
+app.use("/api/reviews", require("./routes/reviewRoutes"));
 
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 app.use((err, req, res, next) => {
