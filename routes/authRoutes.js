@@ -18,6 +18,19 @@ const transporter = nodemailer.createTransport({
   socketTimeout: 10000
 });
 
+const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Non autorise' });
+  }
+  try {
+    req.user = jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ error: 'Token invalide' });
+  }
+};
+
 const sendWelcomeEmail = (to, firstName, username) => {
   // PAS DE AWAIT - fire and forget
   transporter.sendMail({
@@ -147,6 +160,64 @@ router.post('/login', async (req, res) => {
 
   } catch (err) {
     console.error('Login ERROR:', err.message);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+router.get('/me', authenticate, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, username, email, first_name, last_name, phone, sms_opt_in, role, created_at
+       FROM users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: "Utilisateur introuvable" });
+    const user = result.rows[0];
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      phone: user.phone,
+      smsOptIn: user.sms_opt_in,
+      role: user.role,
+      createdAt: user.created_at,
+    });
+  } catch (err) {
+    console.error('Me ERROR:', err.message);
+    res.status(500).json({ error: "Erreur serveur" });
+  }
+});
+
+router.patch('/me', authenticate, async (req, res) => {
+  const { firstName, lastName, phone, smsOptIn } = req.body;
+  if (!firstName?.trim() || !lastName?.trim()) {
+    return res.status(400).json({ error: "Prenom et nom requis" });
+  }
+  try {
+    const result = await pool.query(
+      `UPDATE users
+       SET first_name = $1, last_name = $2, phone = $3, sms_opt_in = $4
+       WHERE id = $5
+       RETURNING id, username, email, first_name, last_name, phone, sms_opt_in, role, created_at`,
+      [firstName.trim(), lastName.trim(), phone?.trim() || null, smsOptIn !== false, req.user.id]
+    );
+    const user = result.rows[0];
+    res.json({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      firstName: user.first_name,
+      lastName: user.last_name,
+      phone: user.phone,
+      smsOptIn: user.sms_opt_in,
+      role: user.role,
+      createdAt: user.created_at,
+    });
+  } catch (err) {
+    console.error('Update profile ERROR:', err.message);
     res.status(500).json({ error: "Erreur serveur" });
   }
 });

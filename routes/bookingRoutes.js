@@ -18,6 +18,22 @@ const SHOP_INFO = {
 
 const FROM_EMAIL = { email: 'mrrenaudinbarber@gmail.com', name: 'Mr. Renaudin Barbershop' };
 
+const ensureReviewTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_reviews (
+      id SERIAL PRIMARY KEY,
+      booking_id INTEGER UNIQUE REFERENCES bookings(id) ON DELETE CASCADE,
+      client_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+      title VARCHAR(140),
+      comment TEXT NOT NULL,
+      is_approved BOOLEAN DEFAULT true,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+};
+
 const sendBookingEmail = async (to, subject, html, text) => {
   if (!to) return;
   try {
@@ -331,6 +347,7 @@ router.post('/create', authenticate, async (req, res) => {
 // GET /my-bookings — ✅ FIX: inclure service_id ET barber_id dans le SELECT
 router.get('/my-bookings', authenticate, async (req, res) => {
   try {
+    await ensureReviewTable();
     const result = await pool.query(
       `SELECT
           b.id,
@@ -342,10 +359,13 @@ router.get('/my-bookings', authenticate, async (req, res) => {
           s.name    AS service_name,
           s.price,
           s.duration,
-          u.username AS barber_name
+          u.username AS barber_name,
+          r.id AS review_id,
+          r.rating AS review_rating
        FROM bookings b
        JOIN services s ON b.service_id = s.id
        JOIN users    u ON b.barber_id  = u.id
+       LEFT JOIN client_reviews r ON r.booking_id = b.id
        WHERE b.client_id = $1
        ORDER BY b.start_time DESC`,
       [req.user.id]
