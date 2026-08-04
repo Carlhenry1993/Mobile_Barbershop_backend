@@ -40,6 +40,7 @@ const ensureGalleryTable = async () => {
       show_in_gallery BOOLEAN DEFAULT true,
       show_on_home BOOLEAN DEFAULT true,
       show_on_services BOOLEAN DEFAULT false,
+      show_on_about BOOLEAN DEFAULT false,
       display_order INTEGER DEFAULT 0,
       created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
       created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -49,6 +50,7 @@ const ensureGalleryTable = async () => {
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_in_gallery BOOLEAN DEFAULT true");
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_on_home BOOLEAN DEFAULT true");
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_on_services BOOLEAN DEFAULT false");
+  await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_on_about BOOLEAN DEFAULT false");
 };
 
 const sanitizePhoto = (row) => ({
@@ -62,6 +64,7 @@ const sanitizePhoto = (row) => ({
   show_in_gallery: row.show_in_gallery,
   show_on_home: row.show_on_home,
   show_on_services: row.show_on_services,
+  show_on_about: row.show_on_about,
   display_order: row.display_order,
   created_at: row.created_at,
 });
@@ -76,7 +79,7 @@ router.get("/", async (req, res) => {
   try {
     await ensureGalleryTable();
     const includeHidden = req.query.includeHidden === "true" && isAdminRequest(req);
-    const placement = ["gallery", "home", "services"].includes(req.query.placement)
+    const placement = ["gallery", "home", "services", "about"].includes(req.query.placement)
       ? req.query.placement
       : null;
     const placementClause = placement === "gallery"
@@ -85,6 +88,8 @@ router.get("/", async (req, res) => {
         ? "AND show_on_home = true"
         : placement === "services"
           ? "AND show_on_services = true"
+          : placement === "about"
+            ? "AND show_on_about = true"
           : "";
     const result = await pool.query(
       `SELECT *
@@ -112,6 +117,7 @@ router.post("/", authenticateAdmin, async (req, res) => {
     showInGallery = true,
     showOnHome = true,
     showOnServices = false,
+    showOnAbout = false,
     displayOrder = 0,
   } = req.body;
 
@@ -127,8 +133,8 @@ router.post("/", authenticateAdmin, async (req, res) => {
     }
     const result = await pool.query(
       `INSERT INTO gallery_photos
-       (title, description, category, image_data, is_featured, is_published, show_in_gallery, show_on_home, show_on_services, display_order, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       (title, description, category, image_data, is_featured, is_published, show_in_gallery, show_on_home, show_on_services, show_on_about, display_order, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       [
         title.trim(),
@@ -140,6 +146,7 @@ router.post("/", authenticateAdmin, async (req, res) => {
         Boolean(showInGallery),
         Boolean(showOnHome || isFeatured),
         Boolean(showOnServices),
+        Boolean(showOnAbout),
         Number(displayOrder) || 0,
         req.user.id,
       ]
@@ -162,6 +169,7 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
     showInGallery,
     showOnHome,
     showOnServices,
+    showOnAbout,
     displayOrder,
   } = req.body;
 
@@ -188,9 +196,10 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
         show_in_gallery = COALESCE($7, show_in_gallery),
         show_on_home = COALESCE($8, show_on_home),
         show_on_services = COALESCE($9, show_on_services),
-        display_order = COALESCE($10, display_order),
+        show_on_about = COALESCE($10, show_on_about),
+        display_order = COALESCE($11, display_order),
         updated_at = NOW()
-       WHERE id = $11
+       WHERE id = $12
        RETURNING *`,
       [
         title?.trim(),
@@ -202,6 +211,7 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
         typeof showInGallery === "boolean" ? showInGallery : null,
         typeof showOnHome === "boolean" ? showOnHome : isFeatured === true ? true : null,
         typeof showOnServices === "boolean" ? showOnServices : null,
+        typeof showOnAbout === "boolean" ? showOnAbout : null,
         Number.isFinite(Number(displayOrder)) ? Number(displayOrder) : null,
         req.params.id,
       ]
