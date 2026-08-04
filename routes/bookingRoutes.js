@@ -34,6 +34,80 @@ const ensureReviewTable = async () => {
   `);
 };
 
+const ensureServicesTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS services (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(160) NOT NULL,
+      duration INTEGER NOT NULL DEFAULT 30,
+      price NUMERIC(10,2) NOT NULL DEFAULT 0,
+      description TEXT,
+      active BOOLEAN DEFAULT true,
+      image_data TEXT,
+      is_featured BOOLEAN DEFAULT false,
+      display_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS description TEXT');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS image_data TEXT');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()');
+};
+
+const validateImageData = (imageData) => {
+  if (!imageData) return true;
+  if (typeof imageData !== 'string') return false;
+  if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(imageData)) return false;
+  return Buffer.byteLength(imageData, 'utf8') <= 6 * 1024 * 1024;
+};
+
+const parseServicePayload = (body) => {
+  const duration = Number(body.duration);
+  const price = Number(body.price);
+  const displayOrder = Number(body.displayOrder ?? body.display_order ?? 0);
+
+  if (!body.name?.trim()) return { error: 'Nom du service requis' };
+  if (!Number.isInteger(duration) || duration < 10 || duration > 480) {
+    return { error: 'Duree invalide. Utilisez une duree entre 10 et 480 minutes.' };
+  }
+  if (!Number.isFinite(price) || price < 0) return { error: 'Prix invalide' };
+  if (!Number.isFinite(displayOrder)) return { error: "Ordre d'affichage invalide" };
+  if (!validateImageData(body.imageData)) {
+    return { error: 'Image invalide ou trop lourde. Utilisez JPG, PNG ou WebP sous 6 MB.' };
+  }
+
+  return {
+    data: {
+      name: body.name.trim(),
+      duration,
+      price,
+      description: (body.description || '').trim(),
+      active: body.active !== false,
+      imageData: body.imageData || '',
+      isFeatured: Boolean(body.isFeatured),
+      displayOrder,
+    },
+  };
+};
+
+const serializeService = (row) => ({
+  id: row.id,
+  name: row.name,
+  duration: row.duration,
+  price: row.price,
+  description: row.description,
+  active: row.active,
+  image_data: row.image_data,
+  is_featured: row.is_featured,
+  display_order: row.display_order,
+  created_at: row.created_at,
+});
+
 const sendBookingEmail = async (to, subject, html, text) => {
   if (!to) return;
   try {
@@ -74,13 +148,148 @@ const authenticateAdmin = (req, res, next) => {
 
 // ─── CLIENT ROUTES ────────────────────────────────────────────────────────────
 
+// GET /services/admin/all
+router.get('/services/admin/all', authenticateAdmin, async (req, res) => {
+  try {
+    await ensureServicesTable();
+    const result = await pool.query(
+      `SELECT *
+       FROM services
+       ORDER BY active DESC, display_order ASC, price ASC, name ASC`
+    );
+    res.json(result.rows.map(serializeService));
+  } catch (err) {
+    console.error('Error fetching admin services:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// POST /services/admin
+router.post('/services/admin', authenticateAdmin, async (req, res) => {
+  const parsed = parseServicePayload(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  try {
+    await ensureServicesTable();
+    const service = parsed.data;
+    const result = await pool.query(
+      `INSERT INTO services
+       (name, duration, price, description, active, image_data, is_featured, display_order)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [
+        service.name,
+        service.duration,
+        service.price,
+        service.description,
+        service.active,
+        service.imageData,
+        service.isFeatured,
+        service.displayOrder,
+      ]
+    );
+    res.status(201).json(serializeService(result.rows[0]));
+  } catch (err) {
+    console.error('Error creating service:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// PATCH /services/admin/:id
+router.patch('/services/admin/:id', authenticateAdmin, async (req, res) => {
+  const {
+    name,
+    duration,
+    price,
+    description,
+    active,
+    imageData,
+    isFeatured,
+    displayOrder,
+  } = req.body;
+
+  if (name !== undefined && !name?.trim()) {
+    return res.status(400).json({ error: 'Nom du service requis' });
+  }
+  if (duration !== undefined && (!Number.isInteger(Number(duration)) || Number(duration) < 10 || Number(duration) > 480)) {
+    return res.status(400).json({ error: 'Duree invalide. Utilisez une duree entre 10 et 480 minutes.' });
+  }
+  if (price !== undefined && (!Number.isFinite(Number(price)) || Number(price) < 0)) {
+    return res.status(400).json({ error: 'Prix invalide' });
+  }
+  if (displayOrder !== undefined && !Number.isFinite(Number(displayOrder))) {
+    return res.status(400).json({ error: "Ordre d'affichage invalide" });
+  }
+  if (imageData && !validateImageData(imageData)) {
+    return res.status(400).json({ error: 'Image invalide ou trop lourde.' });
+  }
+
+  try {
+    await ensureServicesTable();
+    const result = await pool.query(
+      `UPDATE services SET
+        name = COALESCE($1, name),
+        duration = COALESCE($2, duration),
+        price = COALESCE($3, price),
+        description = COALESCE($4, description),
+        active = COALESCE($5, active),
+        image_data = COALESCE($6, image_data),
+        is_featured = COALESCE($7, is_featured),
+        display_order = COALESCE($8, display_order),
+        updated_at = NOW()
+       WHERE id = $9
+       RETURNING *`,
+      [
+        name?.trim(),
+        duration !== undefined ? Number(duration) : null,
+        price !== undefined ? Number(price) : null,
+        description !== undefined ? (description || '').trim() : null,
+        typeof active === 'boolean' ? active : null,
+        imageData,
+        typeof isFeatured === 'boolean' ? isFeatured : null,
+        displayOrder !== undefined ? Number(displayOrder) : null,
+        req.params.id,
+      ]
+    );
+
+    if (!result.rows.length) return res.status(404).json({ error: 'Service introuvable' });
+    res.json(serializeService(result.rows[0]));
+  } catch (err) {
+    console.error('Error updating service:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// DELETE /services/admin/:id
+router.delete('/services/admin/:id', authenticateAdmin, async (req, res) => {
+  try {
+    await ensureServicesTable();
+    const result = await pool.query(
+      `UPDATE services
+       SET active = false, is_featured = false, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: 'Service introuvable' });
+    res.json(serializeService(result.rows[0]));
+  } catch (err) {
+    console.error('Error disabling service:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
 // GET /services
 router.get('/services', async (req, res) => {
   try {
+    await ensureServicesTable();
     const result = await pool.query(
-      'SELECT id, name, duration, price, description FROM services WHERE active = true ORDER BY price'
+      `SELECT id, name, duration, price, description, active, image_data, is_featured, display_order
+       FROM services
+       WHERE active = true
+       ORDER BY is_featured DESC, display_order ASC, price ASC, name ASC`
     );
-    res.json(result.rows);
+    res.json(result.rows.map(serializeService));
   } catch (err) {
     console.error('Error fetching services:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
@@ -168,6 +377,7 @@ router.get('/availability', async (req, res) => {
     return res.status(400).json({ error: 'date, barberId, serviceId requis' });
 
   try {
+    await ensureServicesTable();
     // 1. Durée du service
     const serviceRes = await pool.query(
       'SELECT duration FROM services WHERE id = $1 AND active = true', [serviceId]
@@ -252,6 +462,7 @@ router.post('/create', authenticate, async (req, res) => {
 
   const client = await pool.connect();
   try {
+    await ensureServicesTable();
     await client.query('BEGIN');
 
     const serviceRes = await client.query(
