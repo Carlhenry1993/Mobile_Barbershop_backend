@@ -162,6 +162,7 @@ app.use("/api/contact", require("./routes/contactRoutes"));
 app.use("/api/announcements", require("./routes/announcementRoutes"));
 app.use("/api/gallery", require("./routes/galleryRoutes"));
 app.use("/api/reviews", require("./routes/reviewRoutes"));
+app.use("/api/products", require("./routes/productRoutes"));
 
 app.use((req, res) => res.status(404).json({ error: "Route not found" }));
 app.use((err, req, res, next) => {
