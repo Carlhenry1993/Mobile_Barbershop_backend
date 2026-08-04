@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
 const sgMail = require('@sendgrid/mail');
 
 // ─── EMAIL CONFIG ─────────────────────────────────────────────────────────────
@@ -59,6 +60,31 @@ const ensureServicesTable = async () => {
   await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()');
 };
 
+const ensureBarbersTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS barbers (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+      specialties TEXT,
+      avatar_url TEXT,
+      bio TEXT,
+      active BOOLEAN DEFAULT true,
+      display_order INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS specialties TEXT');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS avatar_url TEXT');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS bio TEXT');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS barbers_user_id_unique ON barbers(user_id)');
+};
+
 const validateImageData = (imageData) => {
   if (!imageData) return true;
   if (typeof imageData !== 'string') return false;
@@ -107,6 +133,108 @@ const serializeService = (row) => ({
   display_order: row.display_order,
   created_at: row.created_at,
 });
+
+const cleanText = (value) => (typeof value === 'string' ? value.trim() : '');
+const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const barberNameFromRow = (row) => {
+  const fullName = [row.first_name, row.last_name].filter(Boolean).join(' ').trim();
+  return fullName || row.username || `Barbier #${row.id || row.user_id}`;
+};
+
+const serializeBarber = (row) => ({
+  id: row.id,
+  user_id: row.id,
+  barber_id: row.barber_profile_id || row.profile_id || null,
+  username: row.username,
+  name: barberNameFromRow(row),
+  full_name: barberNameFromRow(row),
+  first_name: row.first_name,
+  last_name: row.last_name,
+  email: row.email,
+  phone: row.phone,
+  specialties: row.specialties || '',
+  avatar_url: row.avatar_url || '',
+  bio: row.bio || '',
+  active: row.active !== false,
+  display_order: row.display_order || 0,
+  created_at: row.created_at,
+});
+
+const parseBarberPayload = (body, { isUpdate = false } = {}) => {
+  const password = typeof body.password === 'string' ? body.password.trim() : '';
+  const displayOrderValue = body.displayOrder ?? body.display_order;
+  const displayOrder = displayOrderValue === undefined || displayOrderValue === ''
+    ? (isUpdate ? undefined : 0)
+    : Number(displayOrderValue);
+  const avatarData = body.avatarData ?? body.avatar_url ?? body.avatarUrl;
+
+  if (!isUpdate || body.username !== undefined) {
+    if (!cleanText(body.username)) return { error: "Nom d'utilisateur requis" };
+  }
+  if (!isUpdate || body.email !== undefined) {
+    if (!cleanText(body.email)) return { error: 'Email requis' };
+    if (!emailRegex.test(cleanText(body.email))) return { error: 'Email invalide' };
+  }
+  if (!isUpdate || body.firstName !== undefined || body.first_name !== undefined) {
+    if (!cleanText(body.firstName ?? body.first_name)) return { error: 'Prenom requis' };
+  }
+  if (!isUpdate || body.lastName !== undefined || body.last_name !== undefined) {
+    if (!cleanText(body.lastName ?? body.last_name)) return { error: 'Nom requis' };
+  }
+  if (!isUpdate && password.length < 6) {
+    return { error: 'Mot de passe requis, 6 caracteres minimum' };
+  }
+  if (isUpdate && password && password.length < 6) {
+    return { error: 'Mot de passe 6 caracteres minimum' };
+  }
+  if (displayOrder !== undefined && !Number.isFinite(displayOrder)) {
+    return { error: "Ordre d'affichage invalide" };
+  }
+  if (avatarData && !validateImageData(avatarData)) {
+    return { error: 'Photo invalide ou trop lourde. Utilisez JPG, PNG ou WebP sous 6 MB.' };
+  }
+
+  return {
+    data: {
+      username: cleanText(body.username) || undefined,
+      email: cleanText(body.email)?.toLowerCase() || undefined,
+      password,
+      firstName: cleanText(body.firstName ?? body.first_name) || undefined,
+      lastName: cleanText(body.lastName ?? body.last_name) || undefined,
+      phone: body.phone !== undefined ? cleanText(body.phone) || null : undefined,
+      specialties: body.specialties !== undefined ? cleanText(body.specialties) : undefined,
+      bio: body.bio !== undefined ? cleanText(body.bio) : undefined,
+      avatarData: avatarData || undefined,
+      active: typeof body.active === 'boolean' ? body.active : undefined,
+      displayOrder,
+    },
+  };
+};
+
+const getBarberByUserId = async (client, userId) => {
+  const result = await client.query(
+    `SELECT
+       u.id,
+       u.username,
+       u.email,
+       u.first_name,
+       u.last_name,
+       u.phone,
+       b.id AS barber_profile_id,
+       b.specialties,
+       b.avatar_url,
+       b.bio,
+       COALESCE(b.active, true) AS active,
+       COALESCE(b.display_order, 0) AS display_order,
+       COALESCE(b.created_at, u.created_at) AS created_at
+     FROM users u
+     LEFT JOIN barbers b ON u.id = b.user_id
+     WHERE u.id = $1 AND u.role = 'barber'`,
+    [userId]
+  );
+  return result.rows[0] ? serializeBarber(result.rows[0]) : null;
+};
 
 const sendBookingEmail = async (to, subject, html, text) => {
   if (!to) return;
@@ -296,17 +424,257 @@ router.get('/services', async (req, res) => {
   }
 });
 
+// GET /barbers/admin/all
+router.get('/barbers/admin/all', authenticateAdmin, async (req, res) => {
+  try {
+    await ensureBarbersTable();
+    const result = await pool.query(
+      `SELECT
+         u.id,
+         u.username,
+         u.email,
+         u.first_name,
+         u.last_name,
+         u.phone,
+         b.id AS barber_profile_id,
+         b.specialties,
+         b.avatar_url,
+         b.bio,
+         COALESCE(b.active, true) AS active,
+         COALESCE(b.display_order, 0) AS display_order,
+         COALESCE(b.created_at, u.created_at) AS created_at
+       FROM users u
+       LEFT JOIN barbers b ON u.id = b.user_id
+       WHERE u.role = 'barber'
+       ORDER BY COALESCE(b.active, true) DESC, COALESCE(b.display_order, 0) ASC, u.first_name ASC, u.username ASC`
+    );
+    res.json(result.rows.map(serializeBarber));
+  } catch (err) {
+    console.error('Error fetching admin barbers:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  }
+});
+
+// POST /barbers/admin
+router.post('/barbers/admin', authenticateAdmin, async (req, res) => {
+  const parsed = parseBarberPayload(req.body);
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  const barber = parsed.data;
+  const client = await pool.connect();
+
+  try {
+    await ensureBarbersTable();
+    await client.query('BEGIN');
+
+    const exists = await client.query(
+      'SELECT id FROM users WHERE LOWER(username) = LOWER($1) OR LOWER(email) = LOWER($2)',
+      [barber.username, barber.email]
+    );
+    if (exists.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: "Nom d'utilisateur ou email deja utilise" });
+    }
+
+    const hashedPassword = await bcrypt.hash(barber.password, 10);
+    const userResult = await client.query(
+      `INSERT INTO users (username, email, password, first_name, last_name, phone, sms_opt_in, role, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, false, 'barber', NOW())
+       RETURNING id`,
+      [
+        barber.username,
+        barber.email,
+        hashedPassword,
+        barber.firstName,
+        barber.lastName,
+        barber.phone || null,
+      ]
+    );
+
+    const userId = userResult.rows[0].id;
+    await client.query(
+      `INSERT INTO barbers (user_id, specialties, avatar_url, bio, active, display_order)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        userId,
+        barber.specialties || '',
+        barber.avatarData || null,
+        barber.bio || '',
+        barber.active !== false,
+        barber.displayOrder || 0,
+      ]
+    );
+
+    const created = await getBarberByUserId(client, userId);
+    await client.query('COMMIT');
+    res.status(201).json(created);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error creating barber:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  } finally {
+    client.release();
+  }
+});
+
+// PATCH /barbers/admin/:userId
+router.patch('/barbers/admin/:userId', authenticateAdmin, async (req, res) => {
+  const parsed = parseBarberPayload(req.body, { isUpdate: true });
+  if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+  const barber = parsed.data;
+  const client = await pool.connect();
+
+  try {
+    await ensureBarbersTable();
+    await client.query('BEGIN');
+
+    const current = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND role = 'barber' FOR UPDATE",
+      [req.params.userId]
+    );
+    if (!current.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Barbier introuvable' });
+    }
+
+    if (barber.username || barber.email) {
+      const duplicate = await client.query(
+        `SELECT id
+         FROM users
+         WHERE id != $1
+           AND (($2::text IS NOT NULL AND LOWER(username) = LOWER($2))
+             OR ($3::text IS NOT NULL AND LOWER(email) = LOWER($3)))`,
+        [req.params.userId, barber.username || null, barber.email || null]
+      );
+      if (duplicate.rows.length) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: "Nom d'utilisateur ou email deja utilise" });
+      }
+    }
+
+    const hashedPassword = barber.password ? await bcrypt.hash(barber.password, 10) : null;
+    await client.query(
+      `UPDATE users SET
+         username = COALESCE($1, username),
+         email = COALESCE($2, email),
+         password = COALESCE($3, password),
+         first_name = COALESCE($4, first_name),
+         last_name = COALESCE($5, last_name),
+         phone = COALESCE($6, phone)
+       WHERE id = $7 AND role = 'barber'`,
+      [
+        barber.username || null,
+        barber.email || null,
+        hashedPassword,
+        barber.firstName || null,
+        barber.lastName || null,
+        barber.phone === undefined ? null : barber.phone,
+        req.params.userId,
+      ]
+    );
+
+    await client.query(
+      `INSERT INTO barbers (user_id)
+       VALUES ($1)
+       ON CONFLICT (user_id) DO NOTHING`,
+      [req.params.userId]
+    );
+
+    await client.query(
+      `UPDATE barbers SET
+         specialties = COALESCE($2, specialties),
+         avatar_url = COALESCE($3, avatar_url),
+         bio = COALESCE($4, bio),
+         active = COALESCE($5, active),
+         display_order = COALESCE($6, display_order),
+         updated_at = NOW()
+       WHERE user_id = $1`,
+      [
+        req.params.userId,
+        barber.specialties,
+        barber.avatarData,
+        barber.bio,
+        barber.active,
+        barber.displayOrder,
+      ]
+    );
+
+    const updated = await getBarberByUserId(client, req.params.userId);
+    await client.query('COMMIT');
+    res.json(updated);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error updating barber:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /barbers/admin/:userId
+router.delete('/barbers/admin/:userId', authenticateAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await ensureBarbersTable();
+    await client.query('BEGIN');
+
+    const current = await client.query(
+      "SELECT id FROM users WHERE id = $1 AND role = 'barber'",
+      [req.params.userId]
+    );
+    if (!current.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Barbier introuvable' });
+    }
+
+    await client.query(
+      `INSERT INTO barbers (user_id, active)
+       VALUES ($1, false)
+       ON CONFLICT (user_id) DO UPDATE SET active = false, updated_at = NOW()`,
+      [req.params.userId]
+    );
+
+    const disabled = await getBarberByUserId(client, req.params.userId);
+    await client.query('COMMIT');
+    res.json(disabled);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error disabling barber:', err.message);
+    res.status(500).json({ error: 'Erreur serveur' });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /barbers
 router.get('/barbers', async (req, res) => {
   try {
+    await ensureBarbersTable();
     const result = await pool.query(
-      `SELECT u.id, u.username as name, b.specialties, b.avatar_url
+      `SELECT
+         u.id,
+         u.username,
+         u.first_name,
+         u.last_name,
+         b.id AS barber_profile_id,
+         b.specialties,
+         b.avatar_url,
+         b.bio,
+         b.active,
+         b.display_order,
+         b.created_at
        FROM users u
        JOIN barbers b ON u.id = b.user_id
        WHERE u.role = 'barber' AND b.active = true
-       ORDER BY u.username`
+       ORDER BY b.display_order ASC, u.first_name ASC, u.username ASC`
     );
-    res.json(result.rows);
+    res.json(result.rows.map(row => {
+      const barber = serializeBarber(row);
+      delete barber.email;
+      delete barber.phone;
+      return barber;
+    }));
   } catch (err) {
     console.error('Error fetching barbers:', err.message);
     res.status(500).json({ error: 'Erreur serveur' });
