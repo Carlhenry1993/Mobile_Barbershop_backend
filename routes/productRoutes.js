@@ -41,6 +41,7 @@ const ensureProductsTable = async () => {
       slug VARCHAR(180) UNIQUE,
       brand VARCHAR(120),
       category VARCHAR(80) DEFAULT 'soin',
+      subcategory VARCHAR(120),
       short_description VARCHAR(240),
       description TEXT,
       price NUMERIC(10,2),
@@ -58,6 +59,7 @@ const ensureProductsTable = async () => {
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(180) UNIQUE");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS brand VARCHAR(120)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(80) DEFAULT 'soin'");
+  await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS subcategory VARCHAR(120)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS short_description VARCHAR(240)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS description TEXT");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS price NUMERIC(10,2)");
@@ -66,6 +68,7 @@ const ensureProductsTable = async () => {
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_featured BOOLEAN DEFAULT false");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS is_published BOOLEAN DEFAULT true");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS display_order INTEGER DEFAULT 0");
+  await pool.query("CREATE INDEX IF NOT EXISTS products_category_subcategory_idx ON products(category, subcategory)");
 };
 
 const slugify = (value) => {
@@ -105,6 +108,7 @@ const serializeProduct = (row) => ({
   slug: row.slug,
   brand: row.brand,
   category: row.category,
+  subcategory: row.subcategory,
   short_description: row.short_description,
   description: row.description,
   price: row.price,
@@ -121,6 +125,7 @@ router.get("/", async (req, res) => {
     await ensureProductsTable();
     const includeHidden = req.query.includeHidden === "true" && isAdminRequest(req);
     const category = req.query.category?.trim();
+    const subcategory = req.query.subcategory?.trim();
 
     const params = [includeHidden];
     let categoryClause = "";
@@ -128,12 +133,18 @@ router.get("/", async (req, res) => {
       params.push(category);
       categoryClause = `AND category = $${params.length}`;
     }
+    let subcategoryClause = "";
+    if (subcategory) {
+      params.push(subcategory);
+      subcategoryClause = `AND subcategory = $${params.length}`;
+    }
 
     const result = await pool.query(
       `SELECT *
        FROM products
        WHERE ($1::boolean = true OR is_published = true)
        ${categoryClause}
+       ${subcategoryClause}
        ORDER BY is_featured DESC, display_order ASC, created_at DESC`,
       params
     );
@@ -151,6 +162,7 @@ router.post("/", authenticateAdmin, async (req, res) => {
     slug,
     brand = "",
     category = "soin",
+    subcategory = "",
     shortDescription = "",
     description = "",
     price,
@@ -170,7 +182,7 @@ router.post("/", authenticateAdmin, async (req, res) => {
   }
 
   const parsedPrice = parseOptionalPrice(price);
-  const parsedStock = parseStockQuantity(stockQuantity);
+  const parsedStock = stockQuantity === undefined ? null : parseStockQuantity(stockQuantity);
   if (Number.isNaN(parsedPrice)) return res.status(400).json({ error: "Prix invalide" });
   if (Number.isNaN(parsedStock)) return res.status(400).json({ error: "Stock invalide" });
 
@@ -178,14 +190,15 @@ router.post("/", authenticateAdmin, async (req, res) => {
     await ensureProductsTable();
     const result = await pool.query(
       `INSERT INTO products
-       (name, slug, brand, category, short_description, description, price, stock_quantity, image_data, is_featured, is_published, display_order, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       (name, slug, brand, category, subcategory, short_description, description, price, stock_quantity, image_data, is_featured, is_published, display_order, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING *`,
       [
         name.trim(),
         slugify(slug || name),
         brand.trim(),
         category.trim() || "soin",
+        subcategory?.trim() || null,
         shortDescription.trim(),
         description.trim(),
         parsedPrice,
@@ -214,6 +227,7 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
     slug,
     brand,
     category,
+    subcategory,
     shortDescription,
     description,
     price,
@@ -233,34 +247,39 @@ router.patch("/:id", authenticateAdmin, async (req, res) => {
   }
 
   const parsedPrice = parseOptionalPrice(price);
-  const parsedStock = parseStockQuantity(stockQuantity);
+  const parsedStock = stockQuantity === undefined ? null : parseStockQuantity(stockQuantity);
   if (Number.isNaN(parsedPrice)) return res.status(400).json({ error: "Prix invalide" });
   if (Number.isNaN(parsedStock)) return res.status(400).json({ error: "Stock invalide" });
 
   try {
     await ensureProductsTable();
+    const hasSubcategoryPatch = Object.prototype.hasOwnProperty.call(req.body, "subcategory")
+      || Object.prototype.hasOwnProperty.call(req.body, "category");
     const result = await pool.query(
       `UPDATE products SET
         name = COALESCE($1, name),
         slug = COALESCE($2, slug),
         brand = COALESCE($3, brand),
         category = COALESCE($4, category),
-        short_description = COALESCE($5, short_description),
-        description = COALESCE($6, description),
-        price = COALESCE($7, price),
-        stock_quantity = COALESCE($8, stock_quantity),
-        image_data = COALESCE($9, image_data),
-        is_featured = COALESCE($10, is_featured),
-        is_published = COALESCE($11, is_published),
-        display_order = COALESCE($12, display_order),
+        subcategory = CASE WHEN $5::boolean THEN $6 ELSE subcategory END,
+        short_description = COALESCE($7, short_description),
+        description = COALESCE($8, description),
+        price = COALESCE($9, price),
+        stock_quantity = COALESCE($10, stock_quantity),
+        image_data = COALESCE($11, image_data),
+        is_featured = COALESCE($12, is_featured),
+        is_published = COALESCE($13, is_published),
+        display_order = COALESCE($14, display_order),
         updated_at = NOW()
-       WHERE id = $13
+       WHERE id = $15
        RETURNING *`,
       [
         name?.trim(),
         slug !== undefined ? slugify(slug || name) : null,
         brand?.trim(),
         category?.trim(),
+        hasSubcategoryPatch,
+        subcategory?.trim() || null,
         shortDescription?.trim(),
         description?.trim(),
         parsedPrice,
