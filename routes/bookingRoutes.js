@@ -33,6 +33,7 @@ const ensureReviewTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query('ALTER TABLE client_reviews ENABLE ROW LEVEL SECURITY');
 };
 
 const ensureServicesTable = async () => {
@@ -51,6 +52,7 @@ const ensureServicesTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query('ALTER TABLE services ENABLE ROW LEVEL SECURITY');
   await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS description TEXT');
   await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT true');
   await pool.query('ALTER TABLE services ADD COLUMN IF NOT EXISTS image_data TEXT');
@@ -74,6 +76,7 @@ const ensureBarbersTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query('ALTER TABLE barbers ENABLE ROW LEVEL SECURITY');
   await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE');
   await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS specialties TEXT');
   await pool.query('ALTER TABLE barbers ADD COLUMN IF NOT EXISTS avatar_url TEXT');

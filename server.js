@@ -7,6 +7,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const pool = require("./db/pool");
+const { applyRlsSecurity } = require("./db/rls");
 
 if (!process.env.JWT_SECRET) {
   console.error("FATAL: JWT_SECRET is not set");
@@ -61,6 +62,29 @@ app.get("/db-test", async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+const verifyDatabaseSecurity = async () => {
+  if (!process.env.DATABASE_URL) {
+    console.warn("[RLS] DATABASE_URL is not set; skipping Row Level Security verification.");
+    return;
+  }
+
+  try {
+    const tablesWithoutRls = await applyRlsSecurity();
+
+    if (tablesWithoutRls.length) {
+      const tableNames = tablesWithoutRls
+        .map((table) => `${table.schema_name}.${table.table_name}`)
+        .join(", ");
+      console.warn(`[RLS] Public tables still without Row Level Security: ${tableNames}`);
+      return;
+    }
+
+    console.log("[RLS] Row Level Security verified for public tables.");
+  } catch (error) {
+    console.error("[RLS] Could not verify Row Level Security:", error.message);
+  }
+};
 
 // ================= AUTH MIDDLEWARE =================
 const authenticate = (req, res, next) => {
@@ -400,6 +424,7 @@ async function saveMessage(sender, recipient, message) {
 
 // ================= START =================
 const PORT = process.env.PORT || 5000;
+verifyDatabaseSecurity();
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });

@@ -47,6 +47,7 @@ const ensureGalleryTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query("ALTER TABLE gallery_photos ENABLE ROW LEVEL SECURITY");
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_in_gallery BOOLEAN DEFAULT true");
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_on_home BOOLEAN DEFAULT true");
   await pool.query("ALTER TABLE gallery_photos ADD COLUMN IF NOT EXISTS show_on_services BOOLEAN DEFAULT false");

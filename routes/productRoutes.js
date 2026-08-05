@@ -54,6 +54,7 @@ const ensureProductsTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query("ALTER TABLE products ENABLE ROW LEVEL SECURITY");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS slug VARCHAR(180) UNIQUE");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS brand VARCHAR(120)");
   await pool.query("ALTER TABLE products ADD COLUMN IF NOT EXISTS category VARCHAR(80) DEFAULT 'soin'");

@@ -46,6 +46,7 @@ const ensureReviewTable = async () => {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  await pool.query("ALTER TABLE client_reviews ENABLE ROW LEVEL SECURITY");
 };
 
 const serializeReview = (row) => ({
