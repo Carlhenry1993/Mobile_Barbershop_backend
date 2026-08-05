@@ -34,6 +34,24 @@ const auditPublicTablesWithoutRls = async () => {
   return result.rows;
 };
 
+const auditPublicApiSelectExposure = async (roles = ["anon", "authenticated"]) => {
+  const result = await pool.query(
+    `
+      SELECT n.nspname AS schema_name, c.relname AS table_name, r.rolname AS role_name
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      JOIN pg_roles r ON r.rolname = ANY($1::text[])
+      WHERE n.nspname = 'public'
+        AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+        AND has_table_privilege(r.rolname, c.oid, 'SELECT')
+      ORDER BY c.relname, r.rolname
+    `,
+    [roles]
+  );
+
+  return result.rows;
+};
+
 const applyRlsSecurity = async () => {
   await pool.query(getRlsMigrationSql());
   return auditPublicTablesWithoutRls();
@@ -41,6 +59,7 @@ const applyRlsSecurity = async () => {
 
 module.exports = {
   applyRlsSecurity,
+  auditPublicApiSelectExposure,
   auditPublicTablesWithoutRls,
   getRlsMigrationSql,
 };

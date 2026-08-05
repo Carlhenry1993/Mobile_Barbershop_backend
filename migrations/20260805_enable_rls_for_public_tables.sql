@@ -1,19 +1,11 @@
 DO $mrr_rls$
 DECLARE
-  has_anon boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon');
-  has_authenticated boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated');
   has_service_role boolean := EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role');
   unsecured_table record;
 BEGIN
   IF to_regclass('public.services') IS NOT NULL THEN
     ALTER TABLE public.services ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.services TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.services TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.services TO service_role;
       IF to_regclass('public.services_id_seq') IS NOT NULL THEN
@@ -21,15 +13,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'services' AND policyname = 'services_public_read_active'
-    ) THEN
-      CREATE POLICY services_public_read_active
-      ON public.services
-      FOR SELECT
-      USING (active = true);
-    END IF;
+    DROP POLICY IF EXISTS services_public_read_active ON public.services;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -47,12 +31,6 @@ BEGIN
   IF to_regclass('public.barbers') IS NOT NULL THEN
     ALTER TABLE public.barbers ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.barbers TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.barbers TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.barbers TO service_role;
       IF to_regclass('public.barbers_id_seq') IS NOT NULL THEN
@@ -60,15 +38,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'barbers' AND policyname = 'barbers_public_read_active'
-    ) THEN
-      CREATE POLICY barbers_public_read_active
-      ON public.barbers
-      FOR SELECT
-      USING (active = true);
-    END IF;
+    DROP POLICY IF EXISTS barbers_public_read_active ON public.barbers;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -86,12 +56,6 @@ BEGIN
   IF to_regclass('public.gallery_photos') IS NOT NULL THEN
     ALTER TABLE public.gallery_photos ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.gallery_photos TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.gallery_photos TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.gallery_photos TO service_role;
       IF to_regclass('public.gallery_photos_id_seq') IS NOT NULL THEN
@@ -99,15 +63,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'gallery_photos' AND policyname = 'gallery_photos_public_read_published'
-    ) THEN
-      CREATE POLICY gallery_photos_public_read_published
-      ON public.gallery_photos
-      FOR SELECT
-      USING (is_published = true);
-    END IF;
+    DROP POLICY IF EXISTS gallery_photos_public_read_published ON public.gallery_photos;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -125,12 +81,6 @@ BEGIN
   IF to_regclass('public.products') IS NOT NULL THEN
     ALTER TABLE public.products ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.products TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.products TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.products TO service_role;
       IF to_regclass('public.products_id_seq') IS NOT NULL THEN
@@ -138,15 +88,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'products' AND policyname = 'products_public_read_published'
-    ) THEN
-      CREATE POLICY products_public_read_published
-      ON public.products
-      FOR SELECT
-      USING (is_published = true);
-    END IF;
+    DROP POLICY IF EXISTS products_public_read_published ON public.products;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -164,12 +106,6 @@ BEGIN
   IF to_regclass('public.client_reviews') IS NOT NULL THEN
     ALTER TABLE public.client_reviews ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.client_reviews TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.client_reviews TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.client_reviews TO service_role;
       IF to_regclass('public.client_reviews_id_seq') IS NOT NULL THEN
@@ -177,15 +113,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'client_reviews' AND policyname = 'client_reviews_public_read_approved'
-    ) THEN
-      CREATE POLICY client_reviews_public_read_approved
-      ON public.client_reviews
-      FOR SELECT
-      USING (is_approved = true);
-    END IF;
+    DROP POLICY IF EXISTS client_reviews_public_read_approved ON public.client_reviews;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -203,12 +131,6 @@ BEGIN
   IF to_regclass('public.announcements') IS NOT NULL THEN
     ALTER TABLE public.announcements ENABLE ROW LEVEL SECURITY;
 
-    IF has_anon THEN
-      GRANT SELECT ON public.announcements TO anon;
-    END IF;
-    IF has_authenticated THEN
-      GRANT SELECT ON public.announcements TO authenticated;
-    END IF;
     IF has_service_role THEN
       GRANT ALL ON public.announcements TO service_role;
       IF to_regclass('public.announcements_id_seq') IS NOT NULL THEN
@@ -216,15 +138,7 @@ BEGIN
       END IF;
     END IF;
 
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE schemaname = 'public' AND tablename = 'announcements' AND policyname = 'announcements_public_read_all'
-    ) THEN
-      CREATE POLICY announcements_public_read_all
-      ON public.announcements
-      FOR SELECT
-      USING (true);
-    END IF;
+    DROP POLICY IF EXISTS announcements_public_read_all ON public.announcements;
 
     IF has_service_role AND NOT EXISTS (
       SELECT 1 FROM pg_policies
@@ -345,5 +259,54 @@ BEGIN
       unsecured_table.table_name
     );
   END LOOP;
+
+  REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC;
+  REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC;
+  REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+
+  BEGIN
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE USAGE, SELECT ON SEQUENCES FROM PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+      REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'Could not update PUBLIC default privileges: %', SQLERRM;
+  END;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon;
+    REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon;
+    REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM anon;
+
+    BEGIN
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM anon;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE USAGE, SELECT ON SEQUENCES FROM anon;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE EXECUTE ON FUNCTIONS FROM anon;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'Could not update anon default privileges: %', SQLERRM;
+    END;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM authenticated;
+    REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM authenticated;
+    REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM authenticated;
+
+    BEGIN
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM authenticated;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE USAGE, SELECT ON SEQUENCES FROM authenticated;
+      ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+        REVOKE EXECUTE ON FUNCTIONS FROM authenticated;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'Could not update authenticated default privileges: %', SQLERRM;
+    END;
+  END IF;
 END
 $mrr_rls$;

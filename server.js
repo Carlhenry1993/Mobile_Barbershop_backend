@@ -7,7 +7,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 
 const pool = require("./db/pool");
-const { applyRlsSecurity } = require("./db/rls");
+const { applyRlsSecurity, auditPublicApiSelectExposure } = require("./db/rls");
 
 if (!process.env.JWT_SECRET) {
   console.error("FATAL: JWT_SECRET is not set");
@@ -80,7 +80,16 @@ const verifyDatabaseSecurity = async () => {
       return;
     }
 
-    console.log("[RLS] Row Level Security verified for public tables.");
+    const exposedTables = await auditPublicApiSelectExposure();
+    if (exposedTables.length) {
+      const tableNames = exposedTables
+        .map((table) => `${table.schema_name}.${table.table_name} (${table.role_name})`)
+        .join(", ");
+      console.warn(`[RLS] Public API/GraphQL SELECT grants still exposed: ${tableNames}`);
+      return;
+    }
+
+    console.log("[RLS] Row Level Security and public API grants verified.");
   } catch (error) {
     console.error("[RLS] Could not verify Row Level Security:", error.message);
   }
