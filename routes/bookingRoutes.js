@@ -3,11 +3,9 @@ const router = express.Router();
 const pool = require('../db/pool');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const sgMail = require('@sendgrid/mail');
+const { sendTransactionalEmail } = require('../services/emailService');
 
 // ─── EMAIL CONFIG ─────────────────────────────────────────────────────────────
-sgMail.setApiKey(process.env.SMTP_PASS);
-
 const SHOP_INFO = {
   name:    'Mr. Renaudin Barbershop',
   email:   'mrrenaudinbarber@gmail.com',
@@ -16,8 +14,6 @@ const SHOP_INFO = {
   city:    'Shawinigan, QC G9N 1G7',
   website: 'https://mrrenaudinbarbershop.com',
 };
-
-const FROM_EMAIL = { email: 'mrrenaudinbarber@gmail.com', name: 'Mr. Renaudin Barbershop' };
 
 const ensureReviewTable = async () => {
   await pool.query(`
@@ -242,11 +238,16 @@ const getBarberByUserId = async (client, userId) => {
 const sendBookingEmail = async (to, subject, html, text) => {
   if (!to) return;
   try {
-    await sgMail.send({ to, from: FROM_EMAIL, replyTo: SHOP_INFO.email, subject, text, html });
+    await sendTransactionalEmail({
+      to,
+      replyTo: { email: SHOP_INFO.email, name: SHOP_INFO.name },
+      subject,
+      text,
+      html,
+    });
     console.log('Email sent to:', to);
   } catch (err) {
     console.error('EMAIL FAILED:', err.message);
-    if (err.response) console.error('SendGrid errors:', err.response.body.errors);
   }
 };
 

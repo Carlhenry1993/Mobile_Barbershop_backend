@@ -1,13 +1,6 @@
 // controllers/announcementController.js
 const pool   = require("../db/pool");
-const sgMail = require("@sendgrid/mail");
-
-sgMail.setApiKey(process.env.SMTP_PASS);
-
-const FROM_EMAIL = {
-  email: "mrrenaudinbarber@gmail.com",
-  name:  "Mr. Renaudin Barbershop",
-};
+const { sendMarketingEmail } = require("../services/emailService");
 
 const SHOP_INFO = {
   name:    "Mr. Renaudin Barbershop",
@@ -184,10 +177,9 @@ const broadcastToClients = async (title, content) => {
         const name = client.first_name || client.username;
         const { text, html } = buildAnnouncementEmail(name, title, content);
         try {
-          await sgMail.send({
-            to:      client.email,
-            from:    FROM_EMAIL,
-            subject: `📢 ${title} — ${SHOP_INFO.name}`,
+          await sendMarketingEmail({
+            to: client.email,
+            subject: `${title} - ${SHOP_INFO.name}`,
             text,
             html,
           });

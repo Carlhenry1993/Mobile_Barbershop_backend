@@ -2,21 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const pool = require('../db/pool');
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  },
-  connectionTimeout: 5000, // 5s max
-  greetingTimeout: 5000,
-  socketTimeout: 10000
-});
+const { sendTransactionalEmail } = require('../services/emailService');
 
 const authenticate = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -33,10 +20,10 @@ const authenticate = (req, res, next) => {
 
 const sendWelcomeEmail = (to, firstName, username) => {
   // PAS DE AWAIT - fire and forget
-  transporter.sendMail({
-    from: `"Mr. Renaudin Barbershop" <${process.env.SMTP_USER}>`,
+  sendTransactionalEmail({
     to,
     subject: 'Bienvenue chez Mr. Renaudin Barbershop',
+    text: `Bienvenue ${firstName}!\nVotre compte a ete cree avec succes.\nNom d'utilisateur: ${username}\nEmail: ${to}\nhttps://mrrenaudinbarbershop.com/reserver`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <h2 style="color: #d4a843;">Bienvenue ${firstName}!</h2>

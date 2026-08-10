@@ -7,6 +7,7 @@
     "dev": "nodemon server.js",
     "db:audit-rls": "node scripts/audit-rls.js",
     "db:apply-rls": "node scripts/apply-rls.js",
+    "email:check-dns": "node scripts/check-email-dns.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
