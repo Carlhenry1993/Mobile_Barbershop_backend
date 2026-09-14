@@ -7,9 +7,19 @@ const pool = new Pool({
   },
 });
 
-// TEST DATABASE CONNECTION
-pool.query("SELECT NOW()")
-  .then(() => console.log("✅ DATABASE CONNECTED"))
-  .catch(err => console.error("❌ DATABASE ERROR:", err.message));
+pool.on("error", (err) => {
+  console.error("❌ PostgreSQL Pool Error:", err.message);
+});
+
+async function testDatabase() {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    console.log("✅ DATABASE CONNECTED:", result.rows[0]);
+  } catch (err) {
+    console.error("❌ DATABASE ERROR FULL:", err);
+  }
+}
+
+testDatabase();
 
 module.exports = pool;
